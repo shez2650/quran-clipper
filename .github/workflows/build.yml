@@ -1,8 +1,9 @@
 name: Build
 
 # Every push: tests + Android build.
-# Tags like v1.2.0 (or a manual run): also macOS and Windows, and tags publish
-# all three as a GitHub Release. Desktop builds are skipped on plain pushes
+# Tags like v1.2.0 (or a manual run): also macOS and Windows. On a tag each
+# platform attaches its own build to the GitHub Release as soon as it's done,
+# so one slow or stuck platform doesn't hold up the others. Desktop builds are skipped on plain pushes
 # because macOS minutes are expensive on private repos.
 on:
   push:
@@ -33,6 +34,8 @@ jobs:
 
   android:
     needs: test
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -69,9 +72,17 @@ jobs:
         with:
           name: android
           path: '*.apk'
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v') && hashFiles('QuranClipper-android.apk') != ''
+        uses: softprops/action-gh-release@v3
+        with:
+          files: QuranClipper-android.apk
+          overwrite_files: true
 
   macos:
     needs: test
+    permissions:
+      contents: write
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     steps:
@@ -90,9 +101,17 @@ jobs:
         with:
           name: macos
           path: QuranClipper-macos.zip
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: QuranClipper-macos.zip
+          overwrite_files: true
 
   windows:
     needs: test
+    permissions:
+      contents: write
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
@@ -113,21 +132,9 @@ jobs:
         with:
           name: windows
           path: QuranClipper-windows.zip
-
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [android, macos, windows]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v8
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
         with:
-          merge-multiple: true
-      - uses: softprops/action-gh-release@v3
-        with:
-          files: |
-            QuranClipper-android.apk
-            QuranClipper-macos.zip
-            QuranClipper-windows.zip
+          files: QuranClipper-windows.zip
           overwrite_files: true
