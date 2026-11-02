@@ -50,11 +50,19 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-      - run: mv build/app/outputs/flutter-apk/app-release.apk QuranClipper-android.apk
+      # Only a build signed with the release key goes into a release, so it can
+      # install over earlier versions. Without the secrets it's just a check.
+      - name: Name APK
+        run: |
+          if [ -n "${ANDROID_KEYSTORE_PATH:-}" ]; then
+            mv build/app/outputs/flutter-apk/app-release.apk QuranClipper-android.apk
+          else
+            mv build/app/outputs/flutter-apk/app-release.apk ci-debug-signed-android.apk
+          fi
       - uses: actions/upload-artifact@v7
         with:
           name: android
-          path: QuranClipper-android.apk
+          path: '*.apk'
 
   macos:
     needs: test
