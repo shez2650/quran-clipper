@@ -2,32 +2,38 @@ import Cocoa
 import FlutterMacOS
 
 class MainFlutterWindow: NSWindow {
+  private static let autosaveName = "QuranClipperMainWindow"
+
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
-    // The window sizes itself to its content view, so give the Flutter view
-    // the size we want before attaching it.
-    let visible = (self.screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-    let size = NSSize(width: min(1280, visible.width - 40), height: min(820, visible.height - 80))
-    flutterViewController.view.frame = NSRect(origin: .zero, size: size)
     self.contentViewController = flutterViewController
-    self.setContentSize(size)
-    self.center()
     self.contentMinSize = NSSize(width: 480, height: 520)
     self.title = "Quran Clipper"
-    // Remember the size and position the user leaves it at.
-    self.setFrameAutosaveName("QuranClipperMainWindow")
+
+    // First launch: open large enough for the side-by-side editor. After
+    // that, macOS restores whatever size the user left it at.
+    let firstLaunch = UserDefaults.standard.string(forKey: "NSWindow Frame \(Self.autosaveName)") == nil
+    applyDefaultSize()
+    self.setFrameAutosaveName(Self.autosaveName)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
     super.awakeFromNib()
 
     NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: self, queue: .main) { n in
-      NSLog("QuranClipper resized: %@", NSStringFromRect((n.object as! NSWindow).frame))
+      NSLog("QuranClipper resized: %@\n%@", NSStringFromRect((n.object as! NSWindow).frame),
+            Thread.callStackSymbols.prefix(14).joined(separator: "\n"))
     }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-      for w in NSApp.windows {
-        NSLog("QuranClipper window %@ visible=%d frame=%@", String(describing: type(of: w)), w.isVisible ? 1 : 0, NSStringFromRect(w.frame))
-      }
+    if firstLaunch {
+      // Something during start-up shrinks the window back to the nib size,
+      // so apply the default once more after it has appeared.
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.applyDefaultSize() }
     }
+  }
+
+  private func applyDefaultSize() {
+    let visible = (self.screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+    self.setContentSize(NSSize(width: min(1280, visible.width - 40), height: min(820, visible.height - 80)))
+    self.center()
   }
 }
