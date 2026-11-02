@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 
@@ -7,6 +10,8 @@ import 'ui/home_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
+  // The macOS app isn't sandboxed, so the picker's sandbox checks don't apply.
+  if (Platform.isMacOS) await FilePicker.skipEntitlementsChecks();
   await SettingsStore.init();
   await ProjectStore.init();
   runApp(const QuranClipperApp());

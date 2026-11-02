@@ -53,6 +53,7 @@ class _MarkScreenState extends State<MarkScreen> with SingleTickerProviderStateM
 
   final _undo = <List<Segment>>[];
   Timer? _saveTimer;
+  bool _dirty = false;
 
   double get _duration => project.duration > 0 ? project.duration : 1;
 
@@ -60,6 +61,7 @@ class _MarkScreenState extends State<MarkScreen> with SingleTickerProviderStateM
   void initState() {
     super.initState();
     _ticker = createTicker(_onTick)..start();
+    HardwareKeyboard.instance.addHandler(_onKey);
     _initPlayer();
     _initWaveform();
   }
@@ -73,25 +75,34 @@ class _MarkScreenState extends State<MarkScreen> with SingleTickerProviderStateM
       await native.setProperty('keep-open', 'yes');
     } catch (_) {}
 
-    _subs.add(_player.stream.position.listen((d) {
-      _reported = d.inMicroseconds / 1e6;
-      _reportedAt = DateTime.now();
-      if (!_playing) position.value = _reported;
-      _checkStop(_reported);
-    }));
-    _subs.add(_player.stream.playing.listen((p) {
-      _reportedAt = DateTime.now();
-      setState(() => _playing = p);
-    }));
-    _subs.add(_player.stream.duration.listen((d) {
-      final s = d.inMicroseconds / 1e6;
-      if (s > 0 && (project.duration - s).abs() > 0.5 && project.duration <= 0) {
-        setState(() => project.duration = s);
-      }
-    }));
-    _subs.add(_player.stream.completed.listen((done) {
-      if (done) _queue = null;
-    }));
+    _subs.add(
+      _player.stream.position.listen((d) {
+        _reported = d.inMicroseconds / 1e6;
+        _reportedAt = DateTime.now();
+        if (!_playing) position.value = _reported;
+        _checkStop(_reported);
+      }),
+    );
+    _subs.add(
+      _player.stream.playing.listen((p) {
+        _reportedAt = DateTime.now();
+        setState(() => _playing = p);
+      }),
+    );
+    _subs.add(
+      _player.stream.duration.listen((d) {
+        final s = d.inMicroseconds / 1e6;
+        if (s > 0 && project.duration <= 0) {
+          project.duration = s;
+          _changed();
+        }
+      }),
+    );
+    _subs.add(
+      _player.stream.completed.listen((done) {
+        if (done) _queue = null;
+      }),
+    );
 
     if (hasVideo && project.videoPath != project.audioPath) {
       await _player.open(Media(project.videoPath!), play: false);
@@ -142,7 +153,8 @@ class _MarkScreenState extends State<MarkScreen> with SingleTickerProviderStateM
   @override
   void dispose() {
     _saveTimer?.cancel();
-    ProjectStore.instance.save(project);
+    HardwareKeyboard.instance.removeHandler(_onKey);
+    if (_dirty) ProjectStore.instance.save(project);
     for (final s in _subs) {
       s.cancel();
     }
@@ -212,8 +224,12 @@ class _MarkScreenState extends State<MarkScreen> with SingleTickerProviderStateM
 
   void _changed() {
     setState(() {});
+    _dirty = true;
     _saveTimer?.cancel();
-    _saveTimer = Timer(const Duration(milliseconds: 600), () => ProjectStore.instance.save(project));
+    _saveTimer = Timer(const Duration(milliseconds: 600), () {
+      _dirty = false;
+      ProjectStore.instance.save(project);
+    });
   }
 
   void _undoLast() {
@@ -264,10 +280,12 @@ class _MarkScreenState extends State<MarkScreen> with SingleTickerProviderStateM
     _changed();
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(
-        content: const Text('Part deleted'),
-        action: SnackBarAction(label: 'Undo', onPressed: _undoLast),
-      ));
+      ..showSnackBar(
+        SnackBar(
+          content: const Text('Part deleted'),
+          action: SnackBarAction(label: 'Undo', onPressed: _undoLast),
+        ),
+      );
   }
 
   void _nudge(Segment s, {required bool start, required double by}) {
@@ -296,10 +314,7 @@ class _MarkScreenState extends State<MarkScreen> with SingleTickerProviderStateM
           onSubmitted: (v) => Navigator.pop(c, parseTime(v)),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c, position.value),
-            child: const Text('Use playhead'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(c, position.value), child: const Text('Use playhead')),
           TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(c, parseTime(ctrl.text)), child: const Text('Set')),
         ],
@@ -368,92 +383,112 @@ class _MarkScreenState extends State<MarkScreen> with SingleTickerProviderStateM
 
   Future<void> _export() async {
     _player.pause();
+    _saveTimer?.cancel();
+    _dirty = false;
     await ProjectStore.instance.save(project);
     if (!mounted) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => ExportScreen(project: project)));
   }
 
   void _help() => showModalBottomSheet<void>(
-        context: context,
-        showDragHandle: true,
-        isScrollControlled: true,
-        builder: (c) => const _HelpSheet(),
-      );
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (c) => const _HelpSheet(),
+  );
 
   // ---- UI ----
 
-  Map<ShortcutActivator, VoidCallback> get _shortcuts => {
-        const SingleActivator(LogicalKeyboardKey.space): _toggle,
-        const SingleActivator(LogicalKeyboardKey.keyI): _markStart,
-        const SingleActivator(LogicalKeyboardKey.keyO): _markEnd,
-        const SingleActivator(LogicalKeyboardKey.bracketLeft): _markStart,
-        const SingleActivator(LogicalKeyboardKey.bracketRight): _markEnd,
-        const SingleActivator(LogicalKeyboardKey.arrowLeft): () => _skip(-1),
-        const SingleActivator(LogicalKeyboardKey.arrowRight): () => _skip(1),
-        const SingleActivator(LogicalKeyboardKey.arrowLeft, shift: true): () => _skip(-5),
-        const SingleActivator(LogicalKeyboardKey.arrowRight, shift: true): () => _skip(5),
-        const SingleActivator(LogicalKeyboardKey.comma): () => _skip(-0.1),
-        const SingleActivator(LogicalKeyboardKey.period): () => _skip(0.1),
-        const SingleActivator(LogicalKeyboardKey.keyP): () => _playQueue(project.segments),
-        const SingleActivator(LogicalKeyboardKey.equal): () => _waveKey.currentState?.zoom(0.7),
-        const SingleActivator(LogicalKeyboardKey.minus): () => _waveKey.currentState?.zoom(1.4),
-        const SingleActivator(LogicalKeyboardKey.escape): () => setState(() => _pendingStart = null),
-        const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): _undoLast,
-        const SingleActivator(LogicalKeyboardKey.keyZ, control: true): _undoLast,
-        const SingleActivator(LogicalKeyboardKey.keyE, meta: true): _export,
-        const SingleActivator(LogicalKeyboardKey.keyE, control: true): _export,
-      };
+  /// Keys that may auto-repeat while held.
+  static final _repeatable = {
+    LogicalKeyboardKey.arrowLeft,
+    LogicalKeyboardKey.arrowRight,
+    LogicalKeyboardKey.comma,
+    LogicalKeyboardKey.period,
+  };
+
+  /// Handles shortcuts before focused buttons see them, so Space never
+  /// re-presses the last clicked button. Text fields keep their keys.
+  bool _onKey(KeyEvent e) {
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true) return false;
+    if (e is KeyUpEvent) return false;
+    if (e is KeyRepeatEvent && !_repeatable.contains(e.logicalKey)) return false;
+    final focused = FocusManager.instance.primaryFocus?.context?.widget;
+    if (focused is EditableText) return false;
+    for (final entry in _shortcuts.entries) {
+      if (entry.key.accepts(e, HardwareKeyboard.instance)) {
+        entry.value();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Map<SingleActivator, VoidCallback> get _shortcuts => {
+    const SingleActivator(LogicalKeyboardKey.space): _toggle,
+    const SingleActivator(LogicalKeyboardKey.keyI): _markStart,
+    const SingleActivator(LogicalKeyboardKey.keyO): _markEnd,
+    const SingleActivator(LogicalKeyboardKey.bracketLeft): _markStart,
+    const SingleActivator(LogicalKeyboardKey.bracketRight): _markEnd,
+    const SingleActivator(LogicalKeyboardKey.arrowLeft): () => _skip(-1),
+    const SingleActivator(LogicalKeyboardKey.arrowRight): () => _skip(1),
+    const SingleActivator(LogicalKeyboardKey.arrowLeft, shift: true): () => _skip(-5),
+    const SingleActivator(LogicalKeyboardKey.arrowRight, shift: true): () => _skip(5),
+    const SingleActivator(LogicalKeyboardKey.comma): () => _skip(-0.1),
+    const SingleActivator(LogicalKeyboardKey.period): () => _skip(0.1),
+    const SingleActivator(LogicalKeyboardKey.keyP): () => _playQueue(project.segments),
+    const SingleActivator(LogicalKeyboardKey.equal): () => _waveKey.currentState?.zoom(0.7),
+    const SingleActivator(LogicalKeyboardKey.minus): () => _waveKey.currentState?.zoom(1.4),
+    const SingleActivator(LogicalKeyboardKey.escape): () => setState(() => _pendingStart = null),
+    const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): _undoLast,
+    const SingleActivator(LogicalKeyboardKey.keyZ, control: true): _undoLast,
+    const SingleActivator(LogicalKeyboardKey.keyE, meta: true): _export,
+    const SingleActivator(LogicalKeyboardKey.keyE, control: true): _export,
+  };
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     final wide = MediaQuery.sizeOf(context).width >= 900;
-    return CallbackShortcuts(
-      bindings: _shortcuts,
-      child: Focus(
-        focusNode: _focus,
-        autofocus: true,
-        child: Scaffold(
-          appBar: AppBar(
-            title: GestureDetector(
-              onTap: _renameProject,
-              child: Text(project.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+    return Focus(
+      focusNode: _focus,
+      autofocus: true,
+      child: Scaffold(
+        appBar: AppBar(
+          title: GestureDetector(
+            onTap: _renameProject,
+            child: Text(project.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
+          actions: [
+            IconButton(tooltip: 'How to use', icon: const Icon(Icons.help_outline), onPressed: _help),
+            IconButton(tooltip: 'Undo', icon: const Icon(Icons.undo), onPressed: _undo.isEmpty ? null : _undoLast),
+            Padding(
+              padding: const EdgeInsets.only(right: 8, left: 4),
+              child: FilledButton.icon(
+                onPressed: project.segments.isEmpty ? null : _export,
+                icon: const Icon(Icons.ios_share, size: 18),
+                label: const Text('Export'),
+              ),
             ),
-            actions: [
-              IconButton(tooltip: 'How to use', icon: const Icon(Icons.help_outline), onPressed: _help),
-              IconButton(
-                tooltip: 'Undo',
-                icon: const Icon(Icons.undo),
-                onPressed: _undo.isEmpty ? null : _undoLast,
-              ),
-              Padding(
-                padding: const EdgeInsets.only(right: 8, left: 4),
-                child: FilledButton.icon(
-                  onPressed: project.segments.isEmpty ? null : _export,
-                  icon: const Icon(Icons.ios_share, size: 18),
-                  label: const Text('Export'),
+          ],
+        ),
+        body: SafeArea(
+          child: wide
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: _editor(t, wide)),
+                    VerticalDivider(width: 1, color: t.colorScheme.outlineVariant),
+                    SizedBox(width: 400, child: _partsPanel(t)),
+                  ],
+                )
+              : Column(
+                  children: [
+                    _editor(t, wide),
+                    Divider(height: 1, color: t.colorScheme.outlineVariant),
+                    Expanded(child: _partsPanel(t)),
+                  ],
                 ),
-              ),
-            ],
-          ),
-          body: SafeArea(
-            child: wide
-                ? Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(child: _editor(t, wide)),
-                      VerticalDivider(width: 1, color: t.colorScheme.outlineVariant),
-                      SizedBox(width: 400, child: _partsPanel(t)),
-                    ],
-                  )
-                : Column(
-                    children: [
-                      _editor(t, wide),
-                      Divider(height: 1, color: t.colorScheme.outlineVariant),
-                      Expanded(child: _partsPanel(t)),
-                    ],
-                  ),
-          ),
         ),
       ),
     );
@@ -485,23 +520,23 @@ class _MarkScreenState extends State<MarkScreen> with SingleTickerProviderStateM
           child: _waveform == null && _waveError == null
               ? _WaveLoading(theme: t)
               : _waveError != null
-                  ? Center(child: Text('Waveform unavailable: $_waveError', textAlign: TextAlign.center))
-                  : WaveformView(
-                      key: _waveKey,
-                      waveform: _waveform,
-                      duration: _duration,
-                      position: position,
-                      segments: project.segments,
-                      pendingStart: _pendingStart,
-                      selectedId: _selectedId,
-                      onSeek: _userSeek,
-                      onSegmentEdited: () => setState(() {}),
-                      onEditEnd: () {
-                        _remember();
-                        _changed();
-                      },
-                      follow: _playing,
-                    ),
+              ? Center(child: Text('Waveform unavailable: $_waveError', textAlign: TextAlign.center))
+              : WaveformView(
+                  key: _waveKey,
+                  waveform: _waveform,
+                  duration: _duration,
+                  position: position,
+                  segments: project.segments,
+                  pendingStart: _pendingStart,
+                  selectedId: _selectedId,
+                  onSeek: _userSeek,
+                  onSegmentEdited: () => setState(() {}),
+                  onEditEnd: () {
+                    _remember();
+                    _changed();
+                  },
+                  follow: _playing,
+                ),
         ),
         const SizedBox(height: 8),
         _transport(t, hasVideo),
@@ -514,59 +549,65 @@ class _MarkScreenState extends State<MarkScreen> with SingleTickerProviderStateM
   }
 
   Widget _transport(ThemeData t, bool hasVideo) => Row(
-        children: [
-          ValueListenableBuilder<double>(
-            valueListenable: position,
-            builder: (context, pos, _) => Text(
-              '${formatTime(pos)} / ${formatTime(_duration, decimals: 0)}',
-              style: t.textTheme.labelLarge?.copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+    children: [
+      ValueListenableBuilder<double>(
+        valueListenable: position,
+        builder: (context, pos, _) => Text(
+          '${formatTime(pos)} / ${formatTime(_duration, decimals: 0)}',
+          style: t.textTheme.labelLarge?.copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+        ),
+      ),
+      const Spacer(),
+      IconButton(tooltip: 'Back 5s', icon: const Icon(Icons.replay_5), onPressed: () => _skip(-5)),
+      IconButton(tooltip: 'Back 1s', icon: const Icon(Icons.keyboard_arrow_left), onPressed: () => _skip(-1)),
+      IconButton.filled(
+        iconSize: 30,
+        tooltip: _playing ? 'Pause (Space)' : 'Play (Space)',
+        icon: Icon(_playing ? Icons.pause : Icons.play_arrow),
+        onPressed: _toggle,
+      ),
+      IconButton(tooltip: 'Forward 1s', icon: const Icon(Icons.keyboard_arrow_right), onPressed: () => _skip(1)),
+      IconButton(tooltip: 'Forward 5s', icon: const Icon(Icons.forward_5), onPressed: () => _skip(5)),
+      const Spacer(),
+      PopupMenuButton<String>(
+        tooltip: 'More',
+        icon: const Icon(Icons.tune),
+        onSelected: (v) {
+          switch (v) {
+            case 'zin':
+              _waveKey.currentState?.zoom(0.6);
+            case 'zout':
+              _waveKey.currentState?.zoom(1.6);
+            case 'video':
+              setState(() => _showVideo = !_showVideo);
+            default:
+              _setRate(double.parse(v));
+          }
+        },
+        itemBuilder: (_) => [
+          const PopupMenuItem(
+            value: 'zin',
+            child: ListTile(leading: Icon(Icons.zoom_in), title: Text('Zoom in')),
+          ),
+          const PopupMenuItem(
+            value: 'zout',
+            child: ListTile(leading: Icon(Icons.zoom_out), title: Text('Zoom out')),
+          ),
+          if (hasVideo)
+            PopupMenuItem(
+              value: 'video',
+              child: ListTile(
+                leading: Icon(_showVideo ? Icons.videocam_off_outlined : Icons.videocam_outlined),
+                title: Text(_showVideo ? 'Hide video' : 'Show video'),
+              ),
             ),
-          ),
-          const Spacer(),
-          IconButton(tooltip: 'Back 5s', icon: const Icon(Icons.replay_5), onPressed: () => _skip(-5)),
-          IconButton(tooltip: 'Back 1s', icon: const Icon(Icons.keyboard_arrow_left), onPressed: () => _skip(-1)),
-          IconButton.filled(
-            iconSize: 30,
-            tooltip: _playing ? 'Pause (Space)' : 'Play (Space)',
-            icon: Icon(_playing ? Icons.pause : Icons.play_arrow),
-            onPressed: _toggle,
-          ),
-          IconButton(tooltip: 'Forward 1s', icon: const Icon(Icons.keyboard_arrow_right), onPressed: () => _skip(1)),
-          IconButton(tooltip: 'Forward 5s', icon: const Icon(Icons.forward_5), onPressed: () => _skip(5)),
-          const Spacer(),
-          PopupMenuButton<String>(
-            tooltip: 'More',
-            icon: const Icon(Icons.tune),
-            onSelected: (v) {
-              switch (v) {
-                case 'zin':
-                  _waveKey.currentState?.zoom(0.6);
-                case 'zout':
-                  _waveKey.currentState?.zoom(1.6);
-                case 'video':
-                  setState(() => _showVideo = !_showVideo);
-                default:
-                  _setRate(double.parse(v));
-              }
-            },
-            itemBuilder: (_) => [
-              const PopupMenuItem(value: 'zin', child: ListTile(leading: Icon(Icons.zoom_in), title: Text('Zoom in'))),
-              const PopupMenuItem(value: 'zout', child: ListTile(leading: Icon(Icons.zoom_out), title: Text('Zoom out'))),
-              if (hasVideo)
-                PopupMenuItem(
-                  value: 'video',
-                  child: ListTile(
-                    leading: Icon(_showVideo ? Icons.videocam_off_outlined : Icons.videocam_outlined),
-                    title: Text(_showVideo ? 'Hide video' : 'Show video'),
-                  ),
-                ),
-              const PopupMenuDivider(),
-              for (final r in [0.75, 1.0, 1.25, 1.5, 2.0])
-                CheckedPopupMenuItem(value: '$r', checked: _rate == r, child: Text('Speed ${r}x')),
-            ],
-          ),
+          const PopupMenuDivider(),
+          for (final r in [0.75, 1.0, 1.25, 1.5, 2.0])
+            CheckedPopupMenuItem(value: '$r', checked: _rate == r, child: Text('Speed ${r}x')),
         ],
-      );
+      ),
+    ],
+  );
 
   Widget _markButtons(ThemeData t) {
     final pending = _pendingStart;
@@ -772,7 +813,11 @@ class _PartTile extends StatelessWidget {
                         ],
                       ),
                     ),
-                    IconButton(tooltip: 'Play this part', icon: const Icon(Icons.play_circle_outline), onPressed: onPlay),
+                    IconButton(
+                      tooltip: 'Play this part',
+                      icon: const Icon(Icons.play_circle_outline),
+                      onPressed: onPlay,
+                    ),
                     PopupMenuButton<String>(
                       onSelected: (v) {
                         switch (v) {
@@ -804,8 +849,18 @@ class _PartTile extends StatelessWidget {
                   spacing: 8,
                   runSpacing: 4,
                   children: [
-                    _EdgeEditor(label: 'Start', time: s.start, onNudge: (by) => onNudge(true, by), onEdit: () => onEditTime(true)),
-                    _EdgeEditor(label: 'End', time: s.end, onNudge: (by) => onNudge(false, by), onEdit: () => onEditTime(false)),
+                    _EdgeEditor(
+                      label: 'Start',
+                      time: s.start,
+                      onNudge: (by) => onNudge(true, by),
+                      onEdit: () => onEditTime(true),
+                    ),
+                    _EdgeEditor(
+                      label: 'End',
+                      time: s.end,
+                      onNudge: (by) => onNudge(false, by),
+                      onEdit: () => onEditTime(false),
+                    ),
                   ],
                 ),
               ],
@@ -829,14 +884,14 @@ class _EdgeEditor extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     Widget nudge(IconData icon, double by, String tip) => Tooltip(
-          message: '$tip (hold for 1s)',
-          child: InkWell(
-            borderRadius: BorderRadius.circular(20),
-            onTap: () => onNudge(by),
-            onLongPress: () => onNudge(by * 10),
-            child: Padding(padding: const EdgeInsets.all(6), child: Icon(icon, size: 18)),
-          ),
-        );
+      message: '$tip (hold for 1s)',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () => onNudge(by),
+        onLongPress: () => onNudge(by * 10),
+        child: Padding(padding: const EdgeInsets.all(6), child: Icon(icon, size: 18)),
+      ),
+    );
     return Container(
       decoration: BoxDecoration(
         border: Border.all(color: t.colorScheme.outlineVariant),
@@ -870,20 +925,20 @@ class _WaveLoading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        alignment: Alignment.center,
-        child: const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5)),
-            SizedBox(height: 10),
-            Text('Drawing waveform…'),
-          ],
-        ),
-      );
+    decoration: BoxDecoration(
+      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    alignment: Alignment.center,
+    child: const Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5)),
+        SizedBox(height: 10),
+        Text('Drawing waveform…'),
+      ],
+    ),
+  );
 }
 
 class _HelpSheet extends StatelessWidget {
@@ -893,14 +948,14 @@ class _HelpSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     Widget row(String k, String v) => Padding(
-          padding: const EdgeInsets.symmetric(vertical: 3),
-          child: Row(
-            children: [
-              SizedBox(width: 120, child: Text(k, style: t.textTheme.labelLarge)),
-              Expanded(child: Text(v)),
-            ],
-          ),
-        );
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          SizedBox(width: 120, child: Text(k, style: t.textTheme.labelLarge)),
+          Expanded(child: Text(v)),
+        ],
+      ),
+    );
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
@@ -909,16 +964,20 @@ class _HelpSheet extends StatelessWidget {
           children: [
             Text('How to mark', style: t.textTheme.titleLarge),
             const SizedBox(height: 8),
-            const Text('1. Play until a recitation begins and press Mark start.\n'
-                '2. Let it play. When the recitation stops, press Mark end.\n'
-                '3. Repeat for every recitation. Talking parts are simply skipped.\n'
-                '4. Fine-tune: drag the edges on the waveform, use −/+ (hold for 1s), or tap a time to type it.\n'
-                '5. Press Preview all to hear the joins, then Export.'),
+            const Text(
+              '1. Play until a recitation begins and press Mark start.\n'
+              '2. Let it play. When the recitation stops, press Mark end.\n'
+              '3. Repeat for every recitation. Talking parts are simply skipped.\n'
+              '4. Fine-tune: drag the edges on the waveform, use −/+ (hold for 1s), or tap a time to type it.\n'
+              '5. Press Preview all to hear the joins, then Export.',
+            ),
             const SizedBox(height: 16),
             Text('Waveform', style: t.textTheme.titleMedium),
             const SizedBox(height: 4),
-            const Text('Tap to jump. Drag to scroll. Pinch or Ctrl/⌘ + scroll to zoom. '
-                'The strip underneath shows the whole file. Tap it to jump there.'),
+            const Text(
+              'Tap to jump. Drag to scroll. Pinch or Ctrl/⌘ + scroll to zoom. '
+              'The strip underneath shows the whole file. Tap it to jump there.',
+            ),
             const SizedBox(height: 16),
             Text('Keyboard (computer)', style: t.textTheme.titleMedium),
             const SizedBox(height: 4),
