@@ -77,10 +77,16 @@ class YouTubeDownloader {
       if (video) {
         final candidates = manifest.videoOnly.where((s) => s.videoResolution.height <= maxHeight).toList();
         if (candidates.isEmpty) throw DownloadException('No video stream found.');
-        // Prefer MP4/H.264 for the widest decoder support, then the tallest.
+        // Prefer H.264 (every device decodes it), then VP9, then AV1; tallest first.
+        int codecRank(VideoOnlyStreamInfo s) {
+          final c = s.videoCodec.toLowerCase();
+          if (c.startsWith('avc1')) return 3;
+          if (c.startsWith('vp9') || c.startsWith('vp09')) return 2;
+          return 1;
+        }
         candidates.sort((a, b) {
-          final mp4 = (b.container == StreamContainer.mp4 ? 1 : 0) - (a.container == StreamContainer.mp4 ? 1 : 0);
-          if (mp4 != 0) return mp4;
+          final byCodec = codecRank(b) - codecRank(a);
+          if (byCodec != 0) return byCodec;
           return b.videoResolution.height.compareTo(a.videoResolution.height);
         });
         info = candidates.first;
