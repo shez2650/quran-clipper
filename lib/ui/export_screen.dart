@@ -144,7 +144,7 @@ class _ExportScreenState extends State<ExportScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(project.title, style: t.textTheme.titleMedium, maxLines: 2, overflow: TextOverflow.ellipsis),
-                            Text('${project.segments.length} parts → ${formatTime(total, decimals: 0)} long',
+                            Text('${project.segments.length} part${project.segments.length == 1 ? '' : 's'} → ${formatTime(total, decimals: 0)} long',
                                 style: t.textTheme.bodyMedium),
                           ],
                         ),
