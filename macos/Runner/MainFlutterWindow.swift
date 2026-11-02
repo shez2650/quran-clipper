@@ -16,6 +16,15 @@ class MainFlutterWindow: NSWindow {
     // Flutter's first layout can resize the window, so apply the size again
     // once the app has finished launching.
     DispatchQueue.main.async { [weak self] in self?.applyDefaultFrame() }
+
+    NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: self, queue: .main) { n in
+      NSLog("QuranClipper resized: %@", NSStringFromRect((n.object as! NSWindow).frame))
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+      for w in NSApp.windows {
+        NSLog("QuranClipper window %@ visible=%d frame=%@", String(describing: type(of: w)), w.isVisible ? 1 : 0, NSStringFromRect(w.frame))
+      }
+    }
   }
 
   /// Large enough for the side-by-side editor, centred on screen.
