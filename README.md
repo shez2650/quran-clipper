@@ -64,7 +64,7 @@ flutter run           # macOS / Windows / connected Android phone
 flutter build apk --release --target-platform android-arm64
 ```
 
-Every push to `main` builds all three platforms in GitHub Actions. Pushing a tag such as `v1.0.1` also publishes a release.
+Every push to `main` runs the tests and builds Android in GitHub Actions. Pushing a tag such as `v1.0.5` also builds macOS and Windows and attaches all three to a GitHub release.
 
 The Android release signing key is *not* in the repo:
 - Locally, `android/key.properties` points to it.
