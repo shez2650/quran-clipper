@@ -7,6 +7,7 @@ import 'package:googleapis_auth/auth_io.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
+import '../platform/stay_awake.dart';
 import 'storage.dart';
 
 class PlaylistRef {
@@ -23,11 +24,19 @@ class YouTubeAuthException implements Exception {
   String toString() => message;
 }
 
-const _postAuthPage = '''<!doctype html><html><head><meta charset="utf-8">
+// On Android a link can switch straight back to the app.
+final _backToApp = Platform.isAndroid
+    ? '<p><a class="btn" href="intent:#Intent;action=android.intent.action.MAIN;'
+        'category=android.intent.category.LAUNCHER;package=app.quranclipper.quran_clipper;end">'
+        'Back to Quran Clipper</a></p>'
+    : '';
+
+final _postAuthPage = '''<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Quran Clipper</title>
 <style>body{font-family:system-ui,sans-serif;background:#0b2a24;color:#f4efe2;display:grid;place-items:center;height:100vh;margin:0;text-align:center}
-h1{font-weight:600}p{color:#bfd3cc}</style></head>
-<body><div><h1>Signed in ✓</h1><p>You can close this tab and go back to Quran Clipper.</p></div></body></html>''';
+h1{font-weight:600}p{color:#bfd3cc}
+.btn{display:inline-block;margin-top:12px;padding:14px 28px;border-radius:999px;background:#c9a75a;color:#0b2a24;font-weight:600;text-decoration:none}</style></head>
+<body><div><h1>Signed in ✓</h1><p>You can close this tab and go back to Quran Clipper.</p>$_backToApp</div></body></html>''';
 
 /// Google sign-in (loopback OAuth, same flow on every platform) and YouTube
 /// Data API calls.
@@ -58,17 +67,23 @@ class YouTubeService {
     return (id, (inner['client_secret'] as String?) ?? '');
   }
 
+  /// Opens Google's sign-in page in the browser. Google then redirects to a
+  /// small web server this app runs on localhost, so the app must stay awake
+  /// while the browser is in front.
   Future<void> signIn() async {
     if (!isConfigured) throw YouTubeAuthException('Add your Google OAuth client in Settings first.');
     final base = http.Client();
     try {
-      final creds = await obtainAccessCredentialsViaUserConsent(
-        _clientId,
-        _scopes,
-        base,
-        (url) => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
-        customPostAuthPage: _postAuthPage,
-      ).timeout(const Duration(minutes: 5), onTimeout: () => throw YouTubeAuthException('Sign-in timed out.'));
+      final creds = await StayAwake.during(
+        'Waiting for Google sign-in…',
+        () => obtainAccessCredentialsViaUserConsent(
+          _clientId,
+          _scopes,
+          base,
+          (url) => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+          customPostAuthPage: _postAuthPage,
+        ).timeout(const Duration(minutes: 5), onTimeout: () => throw YouTubeAuthException('Sign-in timed out.')),
+      );
       _settings.googleCredentials = jsonEncode(creds.toJson());
       _attach(creds);
       await loadChannel();
@@ -161,6 +176,10 @@ class YouTubeService {
     String? playlistId,
     void Function(double fraction)? onProgress,
   }) =>
+      StayAwake.during('Uploading to YouTube…', () => _upload(file, title, description, privacy, playlistId, onProgress));
+
+  Future<String> _upload(File file, String title, String description, String privacy, String? playlistId,
+          void Function(double fraction)? onProgress) =>
       _guard((api) async {
         final length = await file.length();
         var sent = 0;

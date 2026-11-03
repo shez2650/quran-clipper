@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 
 import '../core/models.dart';
 import '../platform/ffmpeg_runner.dart';
+import '../platform/stay_awake.dart';
 import '../services/downloader.dart';
 import '../services/storage.dart';
 import 'mark_screen.dart';
@@ -182,35 +183,39 @@ class _ImportScreenState extends State<ImportScreen> {
       _error = null;
     });
     try {
-      final dl = YouTubeDownloader();
-      _set(status: 'Looking up video…', clearProgress: true);
-      final meta = await dl.fetchMeta(id);
-      final projectId = newId();
-      _workDir = await ProjectStore.instance.createDir(projectId);
-
-      _set(status: 'Downloading audio…\n${meta.title}', progress: 0);
-      final audio = await dl.downloadAudio(id, _workDir!, onProgress: (f) => _set(progress: f), cancel: cancel);
-
-      String? video;
-      if (_withVideo) {
-        _set(status: 'Downloading video…\n${meta.title}', progress: 0);
-        video = await dl.downloadVideo(id, _workDir!,
-            maxHeight: SettingsStore.instance.exportDefaults.videoHeight, onProgress: (f) => _set(progress: f), cancel: cancel);
-      }
-
-      _set(status: 'Reading audio…', clearProgress: true);
-      final info = await FfmpegRunner.instance.probe(audio);
-      await _done(Project(
-        id: projectId,
-        title: meta.title,
-        audioPath: audio,
-        videoPath: video,
-        sourceUrl: 'https://www.youtube.com/watch?v=$id',
-        duration: info.duration > 0 ? info.duration : (meta.duration?.inMilliseconds ?? 0) / 1000,
-      ));
+      await StayAwake.during('Downloading from YouTube…', () => _downloadLink(id, cancel));
     } catch (e) {
       await _fail(e);
     }
+  }
+
+  Future<void> _downloadLink(String id, CancelHandle cancel) async {
+    final dl = YouTubeDownloader();
+    _set(status: 'Looking up video…', clearProgress: true);
+    final meta = await dl.fetchMeta(id);
+    final projectId = newId();
+    _workDir = await ProjectStore.instance.createDir(projectId);
+
+    _set(status: 'Downloading audio…\n${meta.title}', progress: 0);
+    final audio = await dl.downloadAudio(id, _workDir!, onProgress: (f) => _set(progress: f), cancel: cancel);
+
+    String? video;
+    if (_withVideo) {
+      _set(status: 'Downloading video…\n${meta.title}', progress: 0);
+      video = await dl.downloadVideo(id, _workDir!,
+          maxHeight: SettingsStore.instance.exportDefaults.videoHeight, onProgress: (f) => _set(progress: f), cancel: cancel);
+    }
+
+    _set(status: 'Reading audio…', clearProgress: true);
+    final info = await FfmpegRunner.instance.probe(audio);
+    await _done(Project(
+      id: projectId,
+      title: meta.title,
+      audioPath: audio,
+      videoPath: video,
+      sourceUrl: 'https://www.youtube.com/watch?v=$id',
+      duration: info.duration > 0 ? info.duration : (meta.duration?.inMilliseconds ?? 0) / 1000,
+    ));
   }
 
   @override

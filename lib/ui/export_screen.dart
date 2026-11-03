@@ -10,6 +10,7 @@ import '../core/models.dart';
 import '../core/render.dart';
 import '../core/time_format.dart';
 import '../platform/ffmpeg_runner.dart';
+import '../platform/stay_awake.dart';
 import '../services/exporter.dart';
 import '../services/storage.dart';
 import 'upload_sheet.dart';
@@ -63,11 +64,14 @@ class _ExportScreenState extends State<ExportScreen> {
     // The progress card sits at the top, so bring it into view.
     _scroll.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
     try {
-      final r = await Exporter(
-        cancel: cancel,
-        onStatus: (v) => mounted ? setState(() => _status = v) : null,
-        onProgress: (v) => mounted ? setState(() => _progress = v) : null,
-      ).run(project, settings);
+      final r = await StayAwake.during(
+        'Exporting ${project.title}…',
+        () => Exporter(
+          cancel: cancel,
+          onStatus: (v) => mounted ? setState(() => _status = v) : null,
+          onProgress: (v) => mounted ? setState(() => _progress = v) : null,
+        ).run(project, settings),
+      );
       if (!mounted) return;
       setState(() => _result = r);
       if (thenUpload && r.videoPath != null) _upload(r.videoPath!);
