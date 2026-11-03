@@ -179,6 +179,7 @@ class _MarkScreenState extends State<MarkScreen> with SingleTickerProviderStateM
     _stopAt = null;
     _queue = null;
     _seek(t);
+    _waveKey.currentState?.followPlayhead();
   }
 
   void _toggle() {
@@ -197,6 +198,7 @@ class _MarkScreenState extends State<MarkScreen> with SingleTickerProviderStateM
     _queue = null;
     _stopAt = end;
     _seek(start);
+    _waveKey.currentState?.followPlayhead();
     _player.play();
   }
 
@@ -207,6 +209,7 @@ class _MarkScreenState extends State<MarkScreen> with SingleTickerProviderStateM
     _stopAt = parts.first.end;
     setState(() => _selectedId = parts.first.id);
     _seek(parts.first.start);
+    _waveKey.currentState?.followPlayhead();
     _player.play();
   }
 
@@ -569,41 +572,45 @@ class _MarkScreenState extends State<MarkScreen> with SingleTickerProviderStateM
       IconButton(tooltip: 'Forward 1s', icon: const Icon(Icons.keyboard_arrow_right), onPressed: () => _skip(1)),
       IconButton(tooltip: 'Forward 5s', icon: const Icon(Icons.forward_5), onPressed: () => _skip(5)),
       const Spacer(),
-      PopupMenuButton<String>(
-        tooltip: 'More',
-        icon: const Icon(Icons.tune),
-        onSelected: (v) {
-          switch (v) {
-            case 'zin':
-              _waveKey.currentState?.zoom(0.6);
-            case 'zout':
-              _waveKey.currentState?.zoom(1.6);
-            case 'video':
-              setState(() => _showVideo = !_showVideo);
-            default:
-              _setRate(double.parse(v));
-          }
-        },
-        itemBuilder: (_) => [
-          const PopupMenuItem(
-            value: 'zin',
-            child: ListTile(leading: Icon(Icons.zoom_in), title: Text('Zoom in')),
+      // Zoom items keep the menu open so you can press them repeatedly.
+      MenuAnchor(
+        builder: (context, menu, _) => IconButton(
+          tooltip: 'More',
+          icon: const Icon(Icons.tune),
+          onPressed: () => menu.isOpen ? menu.close() : menu.open(),
+        ),
+        menuChildren: [
+          MenuItemButton(
+            closeOnActivate: false,
+            leadingIcon: const Icon(Icons.zoom_in),
+            onPressed: () => _waveKey.currentState?.zoom(0.6),
+            child: const Text('Zoom in'),
           ),
-          const PopupMenuItem(
-            value: 'zout',
-            child: ListTile(leading: Icon(Icons.zoom_out), title: Text('Zoom out')),
+          MenuItemButton(
+            closeOnActivate: false,
+            leadingIcon: const Icon(Icons.zoom_out),
+            onPressed: () => _waveKey.currentState?.zoom(1.6),
+            child: const Text('Zoom out'),
           ),
           if (hasVideo)
-            PopupMenuItem(
-              value: 'video',
-              child: ListTile(
-                leading: Icon(_showVideo ? Icons.videocam_off_outlined : Icons.videocam_outlined),
-                title: Text(_showVideo ? 'Hide video' : 'Show video'),
-              ),
+            MenuItemButton(
+              leadingIcon: Icon(_showVideo ? Icons.videocam_off_outlined : Icons.videocam_outlined),
+              onPressed: () => setState(() => _showVideo = !_showVideo),
+              child: Text(_showVideo ? 'Hide video' : 'Show video'),
             ),
-          const PopupMenuDivider(),
+          const Divider(height: 8),
           for (final r in [0.75, 1.0, 1.25, 1.5, 2.0])
-            CheckedPopupMenuItem(value: '$r', checked: _rate == r, child: Text('Speed ${r}x')),
+            MenuItemButton(
+              leadingIcon: Icon(_rate == r ? Icons.check : null),
+              onPressed: () => _setRate(r),
+              child: Text('Speed ${r}x'),
+            ),
+          const Divider(height: 8),
+          MenuItemButton(
+            leadingIcon: const Icon(Icons.close),
+            onPressed: () {},
+            child: const Text('Close'),
+          ),
         ],
       ),
     ],
@@ -975,7 +982,8 @@ class _HelpSheet extends StatelessWidget {
             Text('Waveform', style: t.textTheme.titleMedium),
             const SizedBox(height: 4),
             const Text(
-              'Tap to jump. Drag to scroll. Pinch or Ctrl/⌘ + scroll to zoom. '
+              'Tap to jump. Drag to scroll. While playing, the view follows the playhead until you scroll; '
+              'tap "Back to playhead" to follow it again. Pinch or Ctrl/⌘ + scroll to zoom. '
               'The strip underneath shows the whole file. Tap it to jump there.',
             ),
             const SizedBox(height: 16),

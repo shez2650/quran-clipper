@@ -44,7 +44,7 @@ class WaveformView extends StatefulWidget {
   final VoidCallback onSegmentEdited;
   final VoidCallback onEditEnd;
 
-  /// Keep the playhead in view while playing.
+  /// Keep the playhead in view while playing (until the user scrolls away).
   final bool follow;
 
   @override
@@ -58,6 +58,10 @@ class WaveformViewState extends State<WaveformView> {
   bool _panning = false;
   double _scaleStartSeconds = 60;
   double _scaleFocusTime = 0;
+
+  /// True once the user scrolls the view themselves. Auto-follow stays off
+  /// until they tap "Back to playhead" or jump somewhere.
+  bool detached = false;
 
   double get _maxView => max(5, widget.duration);
 
@@ -86,7 +90,7 @@ class WaveformViewState extends State<WaveformView> {
   }
 
   void _onPosition() {
-    if (!widget.follow || _panning || _drag != null) return;
+    if (!widget.follow || detached || _panning || _drag != null) return;
     final pos = widget.position.value;
     if (pos < viewStart || pos > viewStart + viewSeconds * 0.92) {
       setState(() => viewStart = _clampStart(pos - viewSeconds * 0.1));
@@ -95,8 +99,24 @@ class WaveformViewState extends State<WaveformView> {
 
   double _clampStart(double s) => s.clamp(0, max(0, widget.duration - viewSeconds)).toDouble();
 
+  /// Scrolls by the user: stops following the playhead.
+  void _scrollTo(double start) => setState(() {
+        viewStart = _clampStart(start);
+        detached = true;
+      });
+
+  /// Turns auto-follow back on and brings the playhead into view.
+  void followPlayhead() {
+    final pos = widget.position.value;
+    setState(() {
+      detached = false;
+      if (pos < viewStart || pos > viewStart + viewSeconds * 0.92) viewStart = _clampStart(pos - viewSeconds * 0.2);
+    });
+  }
+
   void zoom(double factor, {double? around}) {
-    final focus = around ?? widget.position.value;
+    // Zoom around the playhead, or the middle of the view if scrolled away.
+    final focus = around ?? (detached ? viewStart + viewSeconds / 2 : widget.position.value);
     final rel = viewSeconds == 0 ? 0.5 : ((focus - viewStart) / viewSeconds).clamp(0.0, 1.0);
     setState(() {
       viewSeconds = (viewSeconds * factor).clamp(5.0, _maxView).toDouble();
@@ -134,79 +154,99 @@ class WaveformViewState extends State<WaveformView> {
       return Column(
         children: [
           Expanded(
-            child: Listener(
-              onPointerSignal: (e) {
-                if (e is! PointerScrollEvent) return;
-                final ctrl = HardwareKeyboard.instance.isControlPressed || HardwareKeyboard.instance.isMetaPressed;
-                if (ctrl) {
-                  zoom(e.scrollDelta.dy > 0 ? 1.25 : 0.8, around: _timeAt(e.localPosition.dx, width));
-                } else {
-                  final d = e.scrollDelta.dx.abs() > e.scrollDelta.dy.abs() ? e.scrollDelta.dx : e.scrollDelta.dy;
-                  setState(() => viewStart = _clampStart(viewStart + d / width * viewSeconds));
-                }
-              },
-              child: MouseRegion(
-                cursor: SystemMouseCursors.precise,
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTapUp: (d) => widget.onSeek(_timeAt(d.localPosition.dx, width)),
-                  onScaleStart: (d) {
-                    _scaleStartSeconds = viewSeconds;
-                    _scaleFocusTime = _timeAt(d.localFocalPoint.dx, width);
-                    if (d.pointerCount == 1) {
-                      _drag = _edgeAt(d.localFocalPoint.dx, width);
-                      _panning = _drag == null;
-                    }
-                  },
-                  onScaleUpdate: (d) {
-                    if (d.pointerCount > 1 && d.scale != 1) {
-                      _drag = null;
-                      final rel = ((_scaleFocusTime - viewStart) / viewSeconds).clamp(0.0, 1.0);
-                      setState(() {
-                        viewSeconds = (_scaleStartSeconds / d.scale).clamp(5.0, _maxView).toDouble();
-                        viewStart = _clampStart(_scaleFocusTime - rel * viewSeconds);
-                      });
-                      return;
-                    }
-                    final drag = _drag;
-                    if (drag != null) {
-                      final t = _timeAt(d.localFocalPoint.dx, width);
-                      final s = drag.segment;
-                      setState(() {
-                        if (drag.isStart) {
-                          s.start = min(t, s.end - 0.2);
-                        } else {
-                          s.end = max(t, s.start + 0.2);
-                        }
-                      });
-                      widget.onSegmentEdited();
-                    } else if (_panning) {
-                      setState(() => viewStart = _clampStart(viewStart - d.focalPointDelta.dx / width * viewSeconds));
-                    }
-                  },
-                  onScaleEnd: (_) {
-                    if (_drag != null) widget.onEditEnd();
-                    _drag = null;
-                    _panning = false;
-                  },
-                  child: ValueListenableBuilder<double>(
-                    valueListenable: widget.position,
-                    builder: (context, pos, _) => CustomPaint(
-                      size: Size.infinite,
-                      painter: _WavePainter(
-                        waveform: widget.waveform,
-                        viewStart: viewStart,
-                        viewSeconds: viewSeconds,
-                        position: pos,
-                        segments: widget.segments,
-                        pendingStart: widget.pendingStart,
-                        selectedId: widget.selectedId,
-                        scheme: scheme,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: Listener(
+                    onPointerSignal: (e) {
+                      if (e is! PointerScrollEvent) return;
+                      final ctrl = HardwareKeyboard.instance.isControlPressed || HardwareKeyboard.instance.isMetaPressed;
+                      if (ctrl) {
+                        zoom(e.scrollDelta.dy > 0 ? 1.25 : 0.8, around: _timeAt(e.localPosition.dx, width));
+                      } else {
+                        final d = e.scrollDelta.dx.abs() > e.scrollDelta.dy.abs() ? e.scrollDelta.dx : e.scrollDelta.dy;
+                        _scrollTo(viewStart + d / width * viewSeconds);
+                      }
+                    },
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.precise,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTapUp: (d) => widget.onSeek(_timeAt(d.localPosition.dx, width)),
+                        onScaleStart: (d) {
+                          _scaleStartSeconds = viewSeconds;
+                          _scaleFocusTime = _timeAt(d.localFocalPoint.dx, width);
+                          if (d.pointerCount == 1) {
+                            _drag = _edgeAt(d.localFocalPoint.dx, width);
+                            _panning = _drag == null;
+                          }
+                        },
+                        onScaleUpdate: (d) {
+                          if (d.pointerCount > 1 && d.scale != 1) {
+                            _drag = null;
+                            final rel = ((_scaleFocusTime - viewStart) / viewSeconds).clamp(0.0, 1.0);
+                            setState(() {
+                              viewSeconds = (_scaleStartSeconds / d.scale).clamp(5.0, _maxView).toDouble();
+                              viewStart = _clampStart(_scaleFocusTime - rel * viewSeconds);
+                            });
+                            return;
+                          }
+                          final drag = _drag;
+                          if (drag != null) {
+                            final t = _timeAt(d.localFocalPoint.dx, width);
+                            final s = drag.segment;
+                            setState(() {
+                              if (drag.isStart) {
+                                s.start = min(t, s.end - 0.2);
+                              } else {
+                                s.end = max(t, s.start + 0.2);
+                              }
+                            });
+                            widget.onSegmentEdited();
+                          } else if (_panning && d.focalPointDelta.dx != 0) {
+                            _scrollTo(viewStart - d.focalPointDelta.dx / width * viewSeconds);
+                          }
+                        },
+                        onScaleEnd: (_) {
+                          if (_drag != null) widget.onEditEnd();
+                          _drag = null;
+                          _panning = false;
+                        },
+                        child: ValueListenableBuilder<double>(
+                          valueListenable: widget.position,
+                          builder: (context, pos, _) => CustomPaint(
+                            size: Size.infinite,
+                            painter: _WavePainter(
+                              waveform: widget.waveform,
+                              viewStart: viewStart,
+                              viewSeconds: viewSeconds,
+                              position: pos,
+                              segments: widget.segments,
+                              pendingStart: widget.pendingStart,
+                              selectedId: widget.selectedId,
+                              scheme: scheme,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
+                if (detached)
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                      ),
+                      onPressed: followPlayhead,
+                      icon: const Icon(Icons.my_location, size: 18),
+                      label: const Text('Back to playhead'),
+                    ),
+                  ),
+              ],
             ),
           ),
           const SizedBox(height: 6),
@@ -214,9 +254,8 @@ class WaveformViewState extends State<WaveformView> {
             height: 22,
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTapUp: (d) => showTime(d.localPosition.dx / width * widget.duration),
-              onHorizontalDragUpdate: (d) =>
-                  setState(() => viewStart = _clampStart(d.localPosition.dx / width * widget.duration - viewSeconds / 2)),
+              onTapUp: (d) => _scrollTo(d.localPosition.dx / width * widget.duration - viewSeconds * 0.2),
+              onHorizontalDragUpdate: (d) => _scrollTo(d.localPosition.dx / width * widget.duration - viewSeconds / 2),
               child: ValueListenableBuilder<double>(
                 valueListenable: widget.position,
                 builder: (context, pos, _) => CustomPaint(
