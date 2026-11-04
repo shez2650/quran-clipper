@@ -31,6 +31,7 @@ class Project {
     this.videoPath,
     this.sourceUrl,
     this.duration = 0,
+    this.reverbOnly = false,
     List<Segment>? segments,
     DateTime? created,
     DateTime? updated,
@@ -52,11 +53,30 @@ class Project {
 
   /// Source length in seconds.
   double duration;
+
+  /// Put straight through the reverb with no cutting: one part covering the
+  /// whole source. See [useWholeFile].
+  bool reverbOnly;
   List<Segment> segments;
   final DateTime created;
   DateTime updated;
 
   double get stitchedLength => segments.fold(0.0, (a, s) => a + s.length);
+
+  /// Whether the source's length is known, which using the whole file needs.
+  bool get canUseWholeFile => duration > 0;
+
+  /// Skips marking: the whole source becomes one part.
+  void useWholeFile() {
+    reverbOnly = true;
+    segments = [Segment(id: newId(), start: 0, end: duration)];
+  }
+
+  /// Back to marking parts by hand, starting from none.
+  void useForClipping() {
+    reverbOnly = false;
+    segments = [];
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -65,6 +85,7 @@ class Project {
         'videoPath': videoPath,
         'sourceUrl': sourceUrl,
         'duration': duration,
+        'reverbOnly': reverbOnly,
         'segments': segments.map((s) => s.toJson()).toList(),
         'created': created.toIso8601String(),
         'updated': updated.toIso8601String(),
@@ -77,6 +98,7 @@ class Project {
         videoPath: j['videoPath'] as String?,
         sourceUrl: j['sourceUrl'] as String?,
         duration: (j['duration'] as num?)?.toDouble() ?? 0,
+        reverbOnly: j['reverbOnly'] as bool? ?? false,
         segments: ((j['segments'] as List?) ?? [])
             .map((e) => Segment.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(),
@@ -172,6 +194,19 @@ class ExportSettings {
   bool reverbSparkle;
 
   ExportSettings copy() => ExportSettings.fromJson(toJson());
+
+  /// These settings for a whole file going straight through the reverb.
+  ExportSettings forWholeFile() => copy()
+    ..masjidReverb = true
+    ..join = JoinMode.hardCut;
+
+  /// What "make these my defaults" saves from the reverb-only screen. That
+  /// screen forces the reverb on and has no join options, so those stay as
+  /// they were in [saved] and ordinary exports aren't changed by accident.
+  ExportSettings defaultsKeeping(ExportSettings saved) => copy()
+    ..masjidReverb = saved.masjidReverb
+    ..join = saved.join
+    ..joinSeconds = saved.joinSeconds;
 
   Map<String, dynamic> toJson() => {
         'format': format.name,

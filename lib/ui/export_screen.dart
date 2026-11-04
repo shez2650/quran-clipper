@@ -13,6 +13,7 @@ import '../platform/ffmpeg_runner.dart';
 import '../platform/stay_awake.dart';
 import '../services/exporter.dart';
 import '../services/storage.dart';
+import 'mark_screen.dart';
 import 'reverb_preview.dart';
 import 'upload_sheet.dart';
 
@@ -38,9 +39,13 @@ class _ExportScreenState extends State<ExportScreen> {
 
   bool get _canUseFootage => project.videoPath != null || project.sourceUrl != null;
 
+  /// The whole file going straight through the reverb, with no cutting.
+  bool get _reverbOnly => project.reverbOnly;
+
   @override
   void initState() {
     super.initState();
+    if (_reverbOnly) s = s.forWholeFile();
     if (s.video == VideoMode.original && !_canUseFootage) s.video = VideoMode.stillImage;
     if (s.imagePath != null && !File(s.imagePath!).existsSync()) s.imagePath = null;
   }
@@ -85,8 +90,17 @@ class _ExportScreenState extends State<ExportScreen> {
     }
   }
 
+  /// From the reverb-only screen: mark parts by hand instead.
+  Future<void> _clipInstead() async {
+    project.useForClipping();
+    await ProjectStore.instance.save(project);
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(MaterialPageRoute<void>(builder: (_) => MarkScreen(project: project)));
+  }
+
   void _saveDefaults() {
-    SettingsStore.instance.exportDefaults = s.copy();
+    final store = SettingsStore.instance;
+    store.exportDefaults = _reverbOnly ? s.defaultsKeeping(store.exportDefaults) : s.copy();
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved as your default settings')));
   }
 
@@ -108,6 +122,10 @@ class _ExportScreenState extends State<ExportScreen> {
   String _description() {
     final b = StringBuffer();
     if (project.sourceUrl != null) b.writeln('Source: ${project.sourceUrl}\n');
+    if (_reverbOnly) {
+      b.writeln('Masjid reverb added with Quran Clipper.');
+      return b.toString();
+    }
     b.writeln('Parts:');
     for (var i = 0; i < project.segments.length; i++) {
       final seg = project.segments[i];
@@ -129,7 +147,17 @@ class _ExportScreenState extends State<ExportScreen> {
     final t = Theme.of(context);
     final total = stitchedDuration(project.segments, s);
     return Scaffold(
-      appBar: AppBar(title: const Text('Export')),
+      appBar: AppBar(
+        title: Text(_reverbOnly ? 'Masjid reverb' : 'Export'),
+        actions: [
+          if (_reverbOnly)
+            TextButton.icon(
+              onPressed: _running ? null : _clipInstead,
+              icon: const Icon(Icons.content_cut),
+              label: const Text('Clip instead'),
+            ),
+        ],
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 640),
@@ -149,7 +177,9 @@ class _ExportScreenState extends State<ExportScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(project.title, style: t.textTheme.titleMedium, maxLines: 2, overflow: TextOverflow.ellipsis),
-                            Text('${project.segments.length} part${project.segments.length == 1 ? '' : 's'} → ${formatTime(total, decimals: 0)} long',
+                            Text(
+                                '${_reverbOnly ? 'Whole file' : '${project.segments.length} part${project.segments.length == 1 ? '' : 's'}'}'
+                                ' → ${formatTime(total, decimals: 0)} long',
                                 style: t.textTheme.bodyMedium),
                           ],
                         ),
@@ -159,6 +189,16 @@ class _ExportScreenState extends State<ExportScreen> {
                 ),
               ),
               if (_running || _result != null || _error != null) ...[const SizedBox(height: 12), _statusCard(t)],
+              if (_reverbOnly) ...[
+                _section(t, 'Reverb'),
+                Text(
+                  'A long, dark, wide echo with a light clean-up of the voice. '
+                  'Adds ${reverbTailSeconds.toStringAsFixed(0)} seconds at the end for it to ring out.',
+                  style: t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.onSurfaceVariant),
+                ),
+                const SizedBox(height: 12),
+                ..._reverbControls(),
+              ],
               _section(t, 'Audio format'),
               Wrap(
                 spacing: 8,
@@ -189,37 +229,39 @@ class _ExportScreenState extends State<ExportScreen> {
                   ],
                 ),
               ],
-              _section(t, 'Between parts'),
-              RadioGroup<JoinMode>(
-                groupValue: s.join,
-                onChanged: (v) => _running ? null : setState(() => s.join = v!),
-                child: Column(
-                  children: [
-                    for (final j in JoinMode.values)
-                      RadioListTile<JoinMode>(
-                        value: j,
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(j.label),
-                        subtitle: Text(j.description),
-                      ),
-                  ],
+              if (!_reverbOnly) ...[
+                _section(t, 'Between parts'),
+                RadioGroup<JoinMode>(
+                  groupValue: s.join,
+                  onChanged: (v) => _running ? null : setState(() => s.join = v!),
+                  child: Column(
+                    children: [
+                      for (final j in JoinMode.values)
+                        RadioListTile<JoinMode>(
+                          value: j,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(j.label),
+                          subtitle: Text(j.description),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-              if (s.join != JoinMode.hardCut)
-                Row(
-                  children: [
-                    SizedBox(width: 110, child: Text('${s.join == JoinMode.gap ? 'Gap' : 'Fade'}: ${s.joinSeconds.toStringAsFixed(1)}s')),
-                    Expanded(
-                      child: Slider(
-                        min: 0.1,
-                        max: s.join == JoinMode.gap ? 5 : 3,
-                        divisions: s.join == JoinMode.gap ? 49 : 29,
-                        value: s.joinSeconds.clamp(0.1, s.join == JoinMode.gap ? 5 : 3).toDouble(),
-                        onChanged: _running ? null : (v) => setState(() => s.joinSeconds = v),
+                if (s.join != JoinMode.hardCut)
+                  Row(
+                    children: [
+                      SizedBox(width: 110, child: Text('${s.join == JoinMode.gap ? 'Gap' : 'Fade'}: ${s.joinSeconds.toStringAsFixed(1)}s')),
+                      Expanded(
+                        child: Slider(
+                          min: 0.1,
+                          max: s.join == JoinMode.gap ? 5 : 3,
+                          divisions: s.join == JoinMode.gap ? 49 : 29,
+                          value: s.joinSeconds.clamp(0.1, s.join == JoinMode.gap ? 5 : 3).toDouble(),
+                          onChanged: _running ? null : (v) => setState(() => s.joinSeconds = v),
+                        ),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
+              ],
               _section(t, 'Extras'),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
@@ -234,41 +276,18 @@ class _ExportScreenState extends State<ExportScreen> {
                 value: s.fadeEdges,
                 onChanged: _running ? null : (v) => setState(() => s.fadeEdges = v),
               ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Masjid reverb'),
-                subtitle: Text(
-                  'A long, dark, wide echo with a light clean-up of the voice. '
-                  'Adds ${reverbTailSeconds.toStringAsFixed(0)} seconds at the end for it to ring out.',
-                ),
-                value: s.masjidReverb,
-                onChanged: _running ? null : (v) => setState(() => s.masjidReverb = v),
-              ),
-              if (s.masjidReverb) ...[
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    const Text('Amount'),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: SegmentedButton<ReverbAmount>(
-                        segments: [
-                          for (final a in ReverbAmount.values) ButtonSegment(value: a, label: Text(a.label)),
-                        ],
-                        selected: {s.reverbAmount},
-                        onSelectionChanged: _running ? null : (v) => setState(() => s.reverbAmount = v.first),
-                      ),
-                    ),
-                  ],
-                ),
+              if (!_reverbOnly) ...[
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Sparkle'),
-                  subtitle: const Text('A faint shimmer an octave above the voice'),
-                  value: s.reverbSparkle,
-                  onChanged: _running ? null : (v) => setState(() => s.reverbSparkle = v),
+                  title: const Text('Masjid reverb'),
+                  subtitle: Text(
+                    'A long, dark, wide echo with a light clean-up of the voice. '
+                    'Adds ${reverbTailSeconds.toStringAsFixed(0)} seconds at the end for it to ring out.',
+                  ),
+                  value: s.masjidReverb,
+                  onChanged: _running ? null : (v) => setState(() => s.masjidReverb = v),
                 ),
-                ReverbPreview(project: project, settings: s, enabled: !_running),
+                if (s.masjidReverb) ...[const SizedBox(height: 4), ..._reverbControls()],
               ],
               _section(t, 'Video'),
               RadioGroup<VideoMode>(
@@ -285,8 +304,8 @@ class _ExportScreenState extends State<ExportScreen> {
                         subtitle: Text(v == VideoMode.original && !_canUseFootage
                             ? 'This source has no picture'
                             : v == VideoMode.original && project.videoPath == null
-                                ? '${v.description} (video will be downloaded)'
-                                : v.description),
+                                ? '${_videoDescription(v)} (video will be downloaded)'
+                                : _videoDescription(v)),
                       ),
                   ],
                 ),
@@ -373,6 +392,34 @@ class _ExportScreenState extends State<ExportScreen> {
       ),
     );
   }
+
+  String _videoDescription(VideoMode v) => _reverbOnly && v == VideoMode.original ? 'Keep the video' : v.description;
+
+  List<Widget> _reverbControls() => [
+        Row(
+          children: [
+            const Text('Amount'),
+            const SizedBox(width: 16),
+            Expanded(
+              child: SegmentedButton<ReverbAmount>(
+                segments: [
+                  for (final a in ReverbAmount.values) ButtonSegment(value: a, label: Text(a.label)),
+                ],
+                selected: {s.reverbAmount},
+                onSelectionChanged: _running ? null : (v) => setState(() => s.reverbAmount = v.first),
+              ),
+            ),
+          ],
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Sparkle'),
+          subtitle: const Text('A faint shimmer an octave above the voice'),
+          value: s.reverbSparkle,
+          onChanged: _running ? null : (v) => setState(() => s.reverbSparkle = v),
+        ),
+        ReverbPreview(project: project, settings: s, enabled: !_running),
+      ];
 
   Widget _section(ThemeData t, String title) => Padding(
         padding: const EdgeInsets.only(top: 24, bottom: 8),

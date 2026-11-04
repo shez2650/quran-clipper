@@ -10,14 +10,15 @@ import '../platform/ffmpeg_runner.dart';
 import '../platform/stay_awake.dart';
 import '../services/downloader.dart';
 import '../services/storage.dart';
-import 'mark_screen.dart';
+import 'choose_screen.dart';
 
 const _mediaExtensions = [
   'mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'oga', 'opus', 'amr', 'wma', '3gp',
   'mp4', 'm4v', 'mov', 'mkv', 'webm', 'avi', 'wmv', 'flv', 'ts', 'mts',
 ];
 
-/// Creates a project from a YouTube link or a local file, then opens it.
+/// Creates a project from a YouTube link or a local file, then asks what to
+/// do with it.
 class ImportScreen extends StatefulWidget {
   const ImportScreen({super.key, this.link, this.editLink = false, this.filePath, this.pickFile = false});
 
@@ -90,7 +91,7 @@ class _ImportScreenState extends State<ImportScreen> {
   Future<void> _done(Project project) async {
     await ProjectStore.instance.save(project);
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(MaterialPageRoute<void>(builder: (_) => MarkScreen(project: project)));
+    Navigator.of(context).pushReplacement(MaterialPageRoute<void>(builder: (_) => ChooseScreen(project: project)));
   }
 
   Future<void> _pick() async {

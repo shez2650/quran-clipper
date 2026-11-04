@@ -9,8 +9,8 @@ import '../core/models.dart';
 import '../core/time_format.dart';
 import '../services/downloader.dart';
 import '../services/storage.dart';
+import 'choose_screen.dart';
 import 'import_screen.dart';
-import 'mark_screen.dart';
 import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -116,15 +116,17 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   title: Text(p.title, maxLines: 2, overflow: TextOverflow.ellipsis),
                   subtitle: Text(
-                    '${p.segments.length} part${p.segments.length == 1 ? '' : 's'}'
-                    ' · ${formatLength(p.stitchedLength)} of ${formatLength(p.duration)}'
-                    ' · ${_ago(p.updated)}',
+                    p.reverbOnly
+                        ? 'Masjid reverb · ${formatLength(p.duration)} · ${_ago(p.updated)}'
+                        : '${p.segments.length} part${p.segments.length == 1 ? '' : 's'}'
+                            ' · ${formatLength(p.stitchedLength)} of ${formatLength(p.duration)}'
+                            ' · ${_ago(p.updated)}',
                   ),
                   trailing: PopupMenuButton<String>(
                     onSelected: (v) => v == 'delete' ? _delete(p) : null,
                     itemBuilder: (_) => const [PopupMenuItem(value: 'delete', child: Text('Delete'))],
                   ),
-                  onTap: () => _open(MarkScreen(project: p)),
+                  onTap: () => _open(screenFor(p)),
                 ),
               );
             },
@@ -195,11 +197,12 @@ class _Empty extends StatelessWidget {
             children: [
               Icon(Icons.auto_awesome_motion_outlined, size: 72, color: t.colorScheme.primary),
               const SizedBox(height: 20),
-              Text('Stitch recitations together', style: t.textTheme.headlineSmall, textAlign: TextAlign.center),
+              Text('Clip recitations, add reverb', style: t.textTheme.headlineSmall, textAlign: TextAlign.center),
               const SizedBox(height: 10),
               Text(
-                'Open a video or recording, mark where each recitation starts and ends, '
-                'and get one continuous recitation without the talking in between.',
+                'Open a video or recording. Mark where each recitation starts and ends to get '
+                'one continuous recitation without the talking, or put the whole file straight '
+                'through the masjid reverb.',
                 style: t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.onSurfaceVariant),
                 textAlign: TextAlign.center,
               ),

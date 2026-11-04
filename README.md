@@ -18,7 +18,7 @@ The app isn't signed by Apple or Microsoft, so these first-run warnings are expe
 
 ## Using it
 
-1. **Start a project.** Paste a YouTube link, or open a video or audio file (voice recordings work too). On Android you can also **Share → Quran Clipper** from the YouTube app or a file manager.
+1. **Start a project.** Paste a YouTube link, or open a video or audio file (voice recordings work too). On Android you can also **Share → Quran Clipper** from the YouTube app or a file manager. Then choose **Mark and clip**, or [**Just add reverb**](#just-add-reverb) to skip the next two steps.
 2. **Mark the recitations.** Play until a recitation begins, press **Mark start**, then press **Mark end** when it stops. Repeat for each recitation.
    - Drag a part's edges on the waveform, nudge them with **− / +** (hold for 1 second steps), or tap a time to type it.
    - Reorder parts by dragging the handle. Rename them from the ⋮ menu.
@@ -42,6 +42,10 @@ Turn on **Masjid reverb** under Extras on the Export screen for a long, dark, wi
 - **Hear a 20-second preview** plays a short stretch ending where a part ends, so you can hear the tail. Switch between **With reverb** and **Original** to compare, and change Amount while it plays.
 
 Exports with it on are named `Title (masjid reverb).mp3`, so they don't get mixed up with plain ones.
+
+### Just add reverb
+
+To put a whole file through the reverb with no cutting, choose **Just add reverb** after picking the file or link. You get the same Amount, Sparkle and preview, the preview being the last 20 seconds of the file, along with the audio format, volume, video and YouTube options. **Clip instead** at the top switches to marking parts by hand. The project stays in your list and reopens on this screen.
 
 ## YouTube upload (one-time setup)
 

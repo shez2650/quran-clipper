@@ -316,6 +316,19 @@ void main() {
     });
     tearDownAll(() => dir.delete(recursive: true));
 
+    test('a whole file keeps all of its sound and gains the tail', () async {
+      final p = Project(id: 'whole', title: 'Whole', audioPath: src, duration: durationOf(await probe(src)))..useWholeFile();
+      final s = ExportSettings(join: JoinMode.crossfade).forWholeFile();
+      final out = '${dir.path}/whole.mp3';
+      await run(buildAudioArgs(input: src, segments: p.segments, settings: s, output: out, reverb: rig));
+      expect(durationOf(await probe(out)), closeTo(p.duration + reverbTailSeconds, 0.15));
+
+      // The last second of the file is still there, at full level.
+      final r = await Process.run(ffmpeg, ['-hide_banner', '-ss', '${p.duration - 1}', '-t', '0.9', '-i', out, '-af', 'volumedetect', '-f', 'null', '-']);
+      final peak = double.parse(RegExp(r'max_volume: (-?[\d.]+) dB').firstMatch(r.stderr as String)!.group(1)!);
+      expect(peak, greaterThan(-30));
+    });
+
     final parts = segs([[1, 4], [10, 12], [20, 25]]);
 
     for (final join in JoinMode.values) {

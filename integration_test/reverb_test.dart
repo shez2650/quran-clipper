@@ -103,6 +103,23 @@ void main() {
     expect(info.duration, closeTo(stitchedDuration(parts(), s), 0.3));
   }, timeout: const Timeout(Duration(minutes: 5)));
 
+  testWidgets('a whole file goes straight through, as audio and as video', (t) async {
+    final length = (await ffmpeg.probe(video)).duration;
+    final pr = Project(id: newId(), title: 'whole file test', audioPath: video, videoPath: video, duration: length)..useWholeFile();
+    final audioOnly = ExportSettings().forWholeFile();
+    final sound = await export(pr, audioOnly);
+    expect((await ffmpeg.probe(sound.audioPath)).duration, closeTo(length + reverbTailSeconds, 0.2));
+    expect(sound.audioPath, contains('(masjid reverb)'));
+
+    final footage = await export(pr, audioOnly.copy()
+      ..video = VideoMode.original
+      ..videoHeight = 180);
+    final info = await ffmpeg.probe(footage.videoPath!);
+    expect(info.hasVideo, isTrue);
+    expect(info.duration, closeTo(length + reverbTailSeconds, 0.3));
+    await ProjectStore.instance.delete(pr);
+  }, timeout: const Timeout(Duration(minutes: 5)));
+
   testWidgets('preview renders with reverb and without', (t) async {
     final pr = project('preview test', parts: [Segment(id: 'a', start: 10, end: 100)]);
     final wet = await renderPreview(project: pr, settings: ExportSettings(masjidReverb: true), withReverb: true, dir: dir);

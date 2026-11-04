@@ -104,7 +104,11 @@ class Exporter {
     }
 
     // 2. Audio file in the chosen format.
-    onStatus(s.masjidReverb ? 'Cutting, joining and adding reverb…' : 'Cutting and joining audio…');
+    onStatus(project.reverbOnly
+        ? 'Adding reverb…'
+        : s.masjidReverb
+            ? 'Cutting, joining and adding reverb…'
+            : 'Cutting and joining audio…');
     final audioOut = _writing = _freeName(outDir, base, s.format.extension);
     final audioWeight = steps[steps.length - (s.video == VideoMode.none ? 1 : 2)];
     await FfmpegRunner.instance.run(
@@ -126,7 +130,7 @@ class Exporter {
         if (image == null || !File(image).existsSync()) {
           image = (await renderTitleCard(
             title: project.title,
-            subtitle: '${segs.length} part${segs.length == 1 ? '' : 's'} · ${_mins(total)}',
+            subtitle: project.reverbOnly ? _mins(total) : '${segs.length} part${segs.length == 1 ? '' : 's'} · ${_mins(total)}',
             outputPath: p.join(workDir.path, 'title_card.png'),
           ))
               .path;
@@ -137,7 +141,7 @@ class Exporter {
           cancel: cancel,
         );
       } else {
-        onStatus('Cutting and joining video…');
+        onStatus(project.reverbOnly ? 'Adding reverb to the video…' : 'Cutting and joining video…');
         await FfmpegRunner.instance.run(
           buildOriginalVideoArgs(
             audioInput: project.audioPath,
