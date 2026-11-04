@@ -27,7 +27,7 @@ The app isn't signed by Apple or Microsoft, so these first-run warnings are expe
 3. **Export.** Choose:
    - **Audio format:** MP3 (default), M4A, Opus, WAV or FLAC.
    - **Between parts:** hard cut (default), fade, crossfade or a silent gap, with an adjustable length.
-   - **Extras:** volume levelling and a fade at the start and end.
+   - **Extras:** volume levelling, a fade at the start and end, and [masjid reverb](#masjid-reverb).
    - **Video:** none, a still image or title card, or the original footage.
    - **Make these my defaults** saves your choices.
 

@@ -44,7 +44,8 @@ void main() {
   setUpAll(() async {
     await SettingsStore.init();
     await ProjectStore.init();
-    dir = await (await getTemporaryDirectory()).createTemp('qc_integration');
+    // On macOS the temporary folder may not exist yet.
+    dir = await (await (await getTemporaryDirectory()).create(recursive: true)).createTemp('qc_integration');
     audio = p.join(dir.path, 'voice like.wav');
     video = p.join(dir.path, 'source.mp4');
     // Ten minutes, with pauses and changing pitch, so it costs what speech costs.
