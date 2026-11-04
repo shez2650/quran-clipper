@@ -6,14 +6,18 @@ import '../core/models.dart';
 import '../core/render.dart';
 import '../platform/ffmpeg_runner.dart';
 import 'downloader.dart';
+import 'reverb.dart';
 import 'storage.dart';
 import 'title_card.dart';
 
 class ExportResult {
-  ExportResult({required this.audioPath, this.videoPath, required this.duration});
+  ExportResult({required this.audioPath, this.videoPath, required this.duration, required this.took});
   final String audioPath;
   final String? videoPath;
   final double duration;
+
+  /// How long the export took.
+  final Duration took;
 }
 
 /// Turns a project's marked parts into finished files.
@@ -45,14 +49,32 @@ class Exporter {
     return path;
   }
 
+  /// The file being written. It's removed if the export fails or is cancelled.
+  String? _writing;
+
   Future<ExportResult> run(Project project, ExportSettings s) async {
+    try {
+      return await _run(project, s);
+    } catch (_) {
+      final partial = _writing;
+      if (partial != null) {
+        try {
+          await File(partial).delete();
+        } catch (_) {}
+      }
+      rethrow;
+    }
+  }
+
+  Future<ExportResult> _run(Project project, ExportSettings s) async {
+    final clock = Stopwatch()..start();
     final segs = project.segments;
     final problems = validateSegments(segs, project.duration);
     if (problems.isNotEmpty) throw FfmpegException(problems.join('\n'));
 
     final total = stitchedDuration(segs, s);
     final outDir = await _outputDir(project);
-    final base = safeFileName(project.title);
+    final base = '${safeFileName(project.title)}${s.masjidReverb ? ' (masjid reverb)' : ''}';
     final workDir = ProjectStore.instance.dirFor(project.id);
     await workDir.create(recursive: true);
 
@@ -74,22 +96,30 @@ class Exporter {
       finish(steps[0]);
     }
 
+    ReverbRig? reverb;
+    if (s.masjidReverb) {
+      onStatus('Getting the reverb ready…');
+      reverb = await MasjidReverb.instance.rig();
+      if (cancel.cancelled) throw CancelledException();
+    }
+
     // 2. Audio file in the chosen format.
-    onStatus('Cutting and joining audio…');
-    final audioOut = _freeName(outDir, base, s.format.extension);
+    onStatus(s.masjidReverb ? 'Cutting, joining and adding reverb…' : 'Cutting and joining audio…');
+    final audioOut = _writing = _freeName(outDir, base, s.format.extension);
     final audioWeight = steps[steps.length - (s.video == VideoMode.none ? 1 : 2)];
     await FfmpegRunner.instance.run(
-      buildAudioArgs(input: project.audioPath, segments: segs, settings: s, output: audioOut),
+      buildAudioArgs(input: project.audioPath, segments: segs, settings: s, output: audioOut, reverb: reverb),
       onProgress: (sec) => step(audioWeight, total > 0 ? sec / total : 0),
       cancel: cancel,
     );
+    _writing = null;
     finish(audioWeight);
 
     // 3. Optional video.
     String? videoOut;
     if (s.video != VideoMode.none) {
       final weight = steps.last;
-      videoOut = _freeName(outDir, base, 'mp4');
+      videoOut = _writing = _freeName(outDir, base, 'mp4');
       if (s.video == VideoMode.stillImage) {
         onStatus('Making video…');
         var image = s.imagePath;
@@ -115,17 +145,19 @@ class Exporter {
             segments: segs,
             settings: s,
             output: videoOut,
+            reverb: reverb,
           ),
           onProgress: (sec) => step(weight, total > 0 ? sec / total : 0),
           cancel: cancel,
         );
       }
+      _writing = null;
       finish(weight);
     }
 
     onProgress(1);
     onStatus('Done');
-    return ExportResult(audioPath: audioOut, videoPath: videoOut, duration: total);
+    return ExportResult(audioPath: audioOut, videoPath: videoOut, duration: total, took: clock.elapsed);
   }
 
   static String _mins(double sec) {

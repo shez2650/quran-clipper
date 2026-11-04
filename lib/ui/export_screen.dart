@@ -13,6 +13,7 @@ import '../platform/ffmpeg_runner.dart';
 import '../platform/stay_awake.dart';
 import '../services/exporter.dart';
 import '../services/storage.dart';
+import 'reverb_preview.dart';
 import 'upload_sheet.dart';
 
 class ExportScreen extends StatefulWidget {
@@ -233,6 +234,42 @@ class _ExportScreenState extends State<ExportScreen> {
                 value: s.fadeEdges,
                 onChanged: _running ? null : (v) => setState(() => s.fadeEdges = v),
               ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Masjid reverb'),
+                subtitle: Text(
+                  'A long, dark, wide echo with a light clean-up of the voice. '
+                  'Adds ${reverbTailSeconds.toStringAsFixed(0)} seconds at the end for it to ring out.',
+                ),
+                value: s.masjidReverb,
+                onChanged: _running ? null : (v) => setState(() => s.masjidReverb = v),
+              ),
+              if (s.masjidReverb) ...[
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    const Text('Amount'),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: SegmentedButton<ReverbAmount>(
+                        segments: [
+                          for (final a in ReverbAmount.values) ButtonSegment(value: a, label: Text(a.label)),
+                        ],
+                        selected: {s.reverbAmount},
+                        onSelectionChanged: _running ? null : (v) => setState(() => s.reverbAmount = v.first),
+                      ),
+                    ),
+                  ],
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Sparkle'),
+                  subtitle: const Text('A faint shimmer an octave above the voice'),
+                  value: s.reverbSparkle,
+                  onChanged: _running ? null : (v) => setState(() => s.reverbSparkle = v),
+                ),
+                ReverbPreview(project: project, settings: s, enabled: !_running),
+              ],
               _section(t, 'Video'),
               RadioGroup<VideoMode>(
                 groupValue: s.video,
@@ -388,7 +425,12 @@ class _ExportScreenState extends State<ExportScreen> {
               children: [
                 Icon(Icons.check_circle, color: t.colorScheme.primary),
                 const SizedBox(width: 8),
-                Text('Done: ${formatTime(r.duration, decimals: 0)} long', style: t.textTheme.titleSmall),
+                Expanded(
+                  child: Text(
+                    'Done: ${formatTime(r.duration, decimals: 0)} long · took ${formatLength(r.took.inMilliseconds / 1000)}',
+                    style: t.textTheme.titleSmall,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 8),

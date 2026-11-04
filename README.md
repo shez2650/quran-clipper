@@ -33,6 +33,16 @@ The app isn't signed by Apple or Microsoft, so these first-run warnings are expe
 
 Projects save automatically. On a computer, exports go to `Downloads/Quran Clipper`. On Android, use **Save** or **Share** after exporting.
 
+## Masjid reverb
+
+Turn on **Masjid reverb** under Extras on the Export screen for a long, dark, wide echo with a faint shimmer, and a light clean-up of the voice before it. It adds 9 seconds at the end for the echo to ring out; a video holds its last frame for those seconds.
+
+- **Amount** makes the echo quieter or louder (Light, Normal, Strong).
+- **Sparkle** turns the shimmer on or off.
+- **Hear a 20-second preview** plays a short stretch ending where a part ends, so you can hear the tail. Switch between **With reverb** and **Original** to compare, and change Amount while it plays.
+
+Exports with it on are named `Title (masjid reverb).mp3`, so they don't get mixed up with plain ones.
+
 ## YouTube upload (one-time setup)
 
 Uploading uses your own free Google API project, so the app never sees your password.

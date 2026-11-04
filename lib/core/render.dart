@@ -8,7 +8,46 @@ import 'models.dart';
 const double declickSeconds = 0.01;
 const double edgeFadeSeconds = 1.5;
 
+/// Seconds of reverb ringing added after the last part.
+const double reverbTailSeconds = 9;
+
+/// Reverb gains, tuned by ear. They include the gain the impulse response
+/// files were scaled by (+30.39 dB and +29.42 dB), so the real wet level is
+/// [reverbWetTargetDb].
+const double reverbWetDb = -49.39;
+const double reverbShimmerDb = -57.42;
+const double reverbWetTargetDb = -19;
+const double reverbLimit = 0.84;
+
+/// The two reverb steps that depend on which ffmpeg is running. Found by
+/// testing it (see services/reverb.dart), because this differs per build.
+class ReverbEngine {
+  const ReverbEngine({required this.noAutoGain, required this.pitchUp});
+
+  /// afir option that stops it normalising the impulse response.
+  final String noAutoGain;
+
+  /// Filter chain raising 48 kHz audio by an octave at the same speed.
+  final String pitchUp;
+
+  static const pitchRubberband = 'rubberband=pitch=2';
+  static const pitchResample = 'asetrate=96000,aresample=48000,atempo=0.5';
+}
+
+/// Everything an export needs to apply the reverb.
+class ReverbRig {
+  const ReverbRig({required this.mainIr, required this.shimmerIr, required this.engine});
+  final String mainIr;
+  final String shimmerIr;
+  final ReverbEngine engine;
+
+  List<String> inputArgs(ExportSettings s) => ['-i', mainIr, if (s.reverbSparkle) ...['-i', shimmerIr]];
+}
+
 String _n(double v) => v.toStringAsFixed(3);
+String _db(double v) => '${v.toStringAsFixed(2)}dB';
+
+const _irFormat = 'aformat=sample_fmts=fltp:channel_layouts=stereo';
 
 /// Crossfade length actually used: never more than half the shortest part,
 /// otherwise ffmpeg's acrossfade fails.
@@ -23,15 +62,64 @@ double stitchedDuration(List<Segment> segs, ExportSettings s) {
   if (segs.isEmpty) return 0;
   final sum = segs.fold(0.0, (a, e) => a + e.length);
   final joins = segs.length - 1;
+  final tail = s.masjidReverb ? reverbTailSeconds : 0.0;
   switch (s.join) {
     case JoinMode.gap:
-      return sum + s.joinSeconds * joins;
+      return sum + s.joinSeconds * joins + tail;
     case JoinMode.crossfade:
-      return sum - crossfadeSeconds(segs, s) * joins;
+      return sum - crossfadeSeconds(segs, s) * joins + tail;
     case JoinMode.hardCut:
     case JoinMode.fade:
-      return sum;
+      return sum + tail;
   }
+}
+
+/// A short stretch to audition settings on, ending where a part really ends
+/// so the reverb tail can be heard. Whole parts while they fit, then the last
+/// seconds of the part that doesn't.
+List<Segment> previewSegments(List<Segment> segs, double seconds) {
+  final out = <Segment>[];
+  var left = seconds;
+  for (final s in segs) {
+    if (left < 1) break;
+    if (s.length <= left) {
+      out.add(s.copy());
+    } else {
+      out.add(Segment(id: s.id, start: s.end - left, end: s.end, label: s.label));
+    }
+    left -= out.last.length;
+  }
+  return out;
+}
+
+/// One stream through the main impulse response and its gain.
+String _wetBranch(String from, String ir, ReverbEngine e, double offsetDb, String to) =>
+    '[$from][$ir]afir=${e.noAutoGain}:irfmt=input,volume=${_db(reverbWetDb + offsetDb)}[$to]';
+
+/// Voice clean-up and reverb, from [from] to the label [reverbed]. The main
+/// impulse response is input [ir], the shimmer one input [ir] + 1.
+String reverbGraph(String from, ExportSettings s, ReverbEngine e, {required int ir}) {
+  final offset = s.reverbAmount.offsetDb;
+  final sparkle = s.reverbSparkle;
+  return [
+    '[$from]highpass=f=100,'
+        'equalizer=f=850:t=o:w=1.2:g=3.5,'
+        'equalizer=f=3500:t=o:w=1.5:g=-2,'
+        'acompressor=threshold=0.063:ratio=3:attack=15:release=180,'
+        'extrastereo=m=0.7,'
+        'apad=pad_dur=${reverbTailSeconds.toStringAsFixed(0)},'
+        'asplit=${sparkle ? 3 : 2}[rdry][rv]${sparkle ? '[rsh]' : ''}',
+    '[$ir:a]$_irFormat[ir1]',
+    if (sparkle) '[${ir + 1}:a]$_irFormat[ir2]',
+    _wetBranch('rv', 'ir1', e, offset, 'rwet'),
+    if (sparkle) ...[
+      '[rsh]${e.pitchUp},highpass=f=900[rshp]',
+      '[rshp][ir2]afir=${e.noAutoGain}:irfmt=input,highpass=f=1500,lowpass=f=6000,'
+          'volume=${_db(reverbShimmerDb + offset)}[rshw]',
+    ],
+    '[rdry][rwet]${sparkle ? '[rshw]' : ''}amix=inputs=${sparkle ? 3 : 2}:normalize=0,'
+        'alimiter=limit=$reverbLimit:level=0[reverbed]',
+  ].join(';');
 }
 
 /// Problems that would stop a render, in plain words. Empty when fine.
@@ -51,8 +139,10 @@ List<String> validateSegments(List<Segment> segs, double sourceDuration) {
   return problems;
 }
 
-/// Per-part audio chains plus the join, ending in the label [aout].
-String audioGraph(List<Segment> segs, ExportSettings s, {int input = 0}) {
+/// Per-part audio chains plus the join, ending in the label [aout]. With the
+/// reverb on, [engine] is required and the impulse responses start at input
+/// [irInput].
+String audioGraph(List<Segment> segs, ExportSettings s, {int input = 0, ReverbEngine? engine, int irInput = 1}) {
   final parts = <String>[];
   final n = segs.length;
   final xf = s.join == JoinMode.crossfade ? crossfadeSeconds(segs, s) : 0.0;
@@ -98,6 +188,11 @@ String audioGraph(List<Segment> segs, ExportSettings s, {int input = 0}) {
   } else {
     parts.add('${List.generate(n, (i) => '[a$i]').join()}concat=n=$n:v=0:a=1[acat]');
     joined = 'acat';
+  }
+
+  if (s.masjidReverb) {
+    parts.add(reverbGraph(joined, s, engine!, ir: irInput));
+    joined = 'reverbed';
   }
 
   final post = <String>[];
@@ -159,13 +254,16 @@ String videoGraph(List<Segment> segs, ExportSettings s, {int input = 0}) {
     joined = 'vcat';
   }
 
+  final post = <String>[
+    // Hold the last frame while the reverb rings out.
+    if (s.masjidReverb) 'tpad=stop_mode=clone:stop_duration=${reverbTailSeconds.toStringAsFixed(0)}',
+  ];
   final total = stitchedDuration(segs, s);
   if (s.fadeEdges && total > 1) {
     final d = min(edgeFadeSeconds, total / 4);
-    parts.add('[$joined]fade=t=in:st=0:d=${_n(d)},fade=t=out:st=${_n(total - d)}:d=${_n(d)}[vout]');
-  } else {
-    parts.add('[$joined]null[vout]');
+    post.add('fade=t=in:st=0:d=${_n(d)},fade=t=out:st=${_n(total - d)}:d=${_n(d)}');
   }
+  parts.add('[$joined]${post.isEmpty ? 'null' : post.join(',')}[vout]');
   return parts.join(';');
 }
 
@@ -190,11 +288,13 @@ List<String> buildAudioArgs({
   required List<Segment> segments,
   required ExportSettings settings,
   required String output,
+  ReverbRig? reverb,
 }) =>
     [
       '-y', '-hide_banner',
       '-i', input,
-      '-filter_complex', audioGraph(segments, settings),
+      if (settings.masjidReverb) ...reverb!.inputArgs(settings),
+      '-filter_complex', audioGraph(segments, settings, engine: reverb?.engine),
       '-map', '[aout]',
       '-vn', '-map_metadata', '-1',
       ...audioEncoderArgs(settings.format, settings.bitrateKbps),
@@ -208,6 +308,7 @@ List<String> buildOriginalVideoArgs({
   required List<Segment> segments,
   required ExportSettings settings,
   required String output,
+  ReverbRig? reverb,
 }) {
   final sameFile = audioInput == videoInput;
   final v = sameFile ? 0 : 1;
@@ -215,8 +316,10 @@ List<String> buildOriginalVideoArgs({
     '-y', '-hide_banner',
     '-i', audioInput,
     if (!sameFile) ...['-i', videoInput],
+    if (settings.masjidReverb) ...reverb!.inputArgs(settings),
     '-filter_complex',
-    '${audioGraph(segments, settings)};${videoGraph(segments, settings, input: v)}',
+    '${audioGraph(segments, settings, engine: reverb?.engine, irInput: v + 1)};'
+        '${videoGraph(segments, settings, input: v)}',
     '-map', '[vout]', '-map', '[aout]',
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p',
     '-c:a', 'aac', '-b:a', '${max(settings.bitrateKbps, 128)}k',
@@ -252,6 +355,34 @@ List<String> buildStillImageArgs({
     output,
   ];
 }
+
+/// Sends [click] through only the main reverb branch into raw 32-bit floats,
+/// to measure the real wet level on the ffmpeg that's running.
+List<String> buildWetCheckArgs({
+  required String click,
+  required String mainIr,
+  required ReverbEngine engine,
+  required String output,
+}) =>
+    [
+      '-y', '-hide_banner',
+      '-i', click,
+      '-i', mainIr,
+      '-filter_complex',
+      '[0:a]apad=pad_dur=${reverbTailSeconds.toStringAsFixed(0)}[rv];[1:a]$_irFormat[ir1];'
+          '${_wetBranch('rv', 'ir1', engine, 0, 'aout')}',
+      '-map', '[aout]',
+      '-c:a', 'pcm_f32le', '-f', 'f32le',
+      output,
+    ];
+
+/// Fails if this ffmpeg can't run [filter].
+List<String> buildFilterCheckArgs({required String input, required String filter}) => [
+      '-y', '-hide_banner',
+      '-i', input,
+      '-af', filter,
+      '-f', 'null', '-',
+    ];
 
 /// Decode to mono 16-bit PCM at a low rate, for drawing the waveform.
 List<String> buildWaveformArgs({required String input, required String output, int sampleRate = 4000}) => [

@@ -93,6 +93,8 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
+      # Runs the export code through the FFmpeg bundled with the app.
+      - run: flutter test integration_test -d macos
       - run: flutter build macos --release --build-number ${{ github.run_number }}
       - name: Zip app
         run: |
@@ -122,6 +124,8 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
+      # Runs the export code through the FFmpeg bundled with the app.
+      - run: flutter test integration_test -d windows
       - run: flutter build windows --release --build-number ${{ github.run_number }}
       - name: Zip app
         shell: pwsh

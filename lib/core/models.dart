@@ -119,6 +119,17 @@ enum VideoMode {
   final String description;
 }
 
+/// How loud the masjid reverb is, as a change to its tuned level.
+enum ReverbAmount {
+  light('Light', -4),
+  normal('Normal', 0),
+  strong('Strong', 4);
+
+  const ReverbAmount(this.label, this.offsetDb);
+  final String label;
+  final double offsetDb;
+}
+
 class ExportSettings {
   ExportSettings({
     this.format = AudioFormat.mp3,
@@ -130,6 +141,9 @@ class ExportSettings {
     this.video = VideoMode.none,
     this.imagePath,
     this.videoHeight = 720,
+    this.masjidReverb = false,
+    this.reverbAmount = ReverbAmount.normal,
+    this.reverbSparkle = true,
   });
 
   AudioFormat format;
@@ -150,6 +164,13 @@ class ExportSettings {
   String? imagePath;
   int videoHeight;
 
+  /// Long, dark, wide reverb with a light clean-up of the voice before it.
+  bool masjidReverb;
+  ReverbAmount reverbAmount;
+
+  /// Faint octave-up shimmer in the reverb.
+  bool reverbSparkle;
+
   ExportSettings copy() => ExportSettings.fromJson(toJson());
 
   Map<String, dynamic> toJson() => {
@@ -162,6 +183,9 @@ class ExportSettings {
         'video': video.name,
         'imagePath': imagePath,
         'videoHeight': videoHeight,
+        'masjidReverb': masjidReverb,
+        'reverbAmount': reverbAmount.name,
+        'reverbSparkle': reverbSparkle,
       };
 
   factory ExportSettings.fromJson(Map<String, dynamic> j) {
@@ -177,6 +201,9 @@ class ExportSettings {
       video: pick(VideoMode.values, j['video'], VideoMode.none),
       imagePath: j['imagePath'] as String?,
       videoHeight: (j['videoHeight'] as num?)?.toInt() ?? 720,
+      masjidReverb: j['masjidReverb'] as bool? ?? false,
+      reverbAmount: pick(ReverbAmount.values, j['reverbAmount'], ReverbAmount.normal),
+      reverbSparkle: j['reverbSparkle'] as bool? ?? true,
     );
   }
 }
