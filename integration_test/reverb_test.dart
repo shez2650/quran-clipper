@@ -41,6 +41,12 @@ void main() {
   Future<ExportResult> export(Project p, ExportSettings s, {CancelHandle? cancel, void Function(double)? onProgress}) =>
       Exporter(onStatus: (_) {}, onProgress: onProgress ?? (_) {}, cancel: cancel).run(p, s);
 
+  Future<List<String>> desktopOrProjectExports(Project pr) async {
+    final folder = isDesktop ? await desktopExportDir() : Directory(p.join(ProjectStore.instance.dirFor(pr.id).path, 'exports'));
+    if (!folder.existsSync()) return [];
+    return folder.listSync().map((e) => e.path).toList();
+  }
+
   setUpAll(() async {
     await SettingsStore.init();
     await ProjectStore.init();
@@ -119,6 +125,28 @@ void main() {
     expect(info.duration, closeTo(length + reverbTailSeconds, 0.3));
     await ProjectStore.instance.delete(pr);
   }, timeout: const Timeout(Duration(minutes: 5)));
+
+  testWidgets('cancel works while the system is holding a file up', (t) async {
+    // Opening a pipe nobody is writing to blocks, like a file behind a macOS
+    // privacy prompt does.
+    final pipe = p.join(dir.path, 'held.wav');
+    expect((await Process.run('mkfifo', [pipe])).exitCode, 0);
+    final pr = Project(id: newId(), title: 'held test', audioPath: pipe, duration: 20, segments: parts());
+    final cancel = CancelHandle();
+    final clock = Stopwatch()..start();
+    Future<void>.delayed(const Duration(seconds: 2), cancel.cancel);
+    await expectLater(export(pr, ExportSettings(), cancel: cancel), throwsA(isA<CancelledException>()));
+    expect(clock.elapsed, lessThan(const Duration(seconds: 15)));
+    final out = await desktopOrProjectExports(pr);
+    expect(out.where((f) => p.basename(f).startsWith('held test')), isEmpty);
+
+    // Let the stuck job go, then check it doesn't leave anything behind.
+    final sink = File(pipe).openWrite();
+    await sink.close();
+    await Future<void>.delayed(const Duration(seconds: 2));
+    expect((await desktopOrProjectExports(pr)).where((f) => p.basename(f).startsWith('held test')), isEmpty);
+    await ProjectStore.instance.delete(pr);
+  }, skip: Platform.isWindows, timeout: const Timeout(Duration(minutes: 2)));
 
   testWidgets('preview renders with reverb and without', (t) async {
     final pr = project('preview test', parts: [Segment(id: 'a', start: 10, end: 100)]);

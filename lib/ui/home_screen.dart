@@ -68,7 +68,7 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (c) => AlertDialog(
         title: const Text('Delete project?'),
-        content: Text('"${p.title}" and its downloaded files will be removed. Files you exported are kept.'),
+        content: Text(deleteWarning(p.title, exportsInProject: !isDesktop)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Delete')),

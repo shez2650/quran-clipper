@@ -12,6 +12,7 @@ import '../core/render.dart';
 import '../core/time_format.dart';
 import '../platform/ffmpeg_runner.dart';
 import '../services/reverb.dart';
+import 'stall_hint.dart';
 
 const _previewSeconds = 20.0;
 
@@ -37,6 +38,8 @@ class _ReverbPreviewState extends State<ReverbPreview> {
   CancelHandle? _cancel;
 
   bool _busy = false;
+  bool _stalled = false;
+  Timer? _stallTimer;
   bool _withReverb = true;
   bool _playing = false;
   String? _loaded;
@@ -84,6 +87,7 @@ class _ReverbPreviewState extends State<ReverbPreview> {
   @override
   void dispose() {
     _cancel?.cancel();
+    _stallTimer?.cancel();
     for (final s in _subs) {
       s.cancel();
     }
@@ -120,6 +124,11 @@ class _ReverbPreviewState extends State<ReverbPreview> {
       _busy = true;
       _error = null;
       _withReverb = withReverb;
+      _stalled = false;
+    });
+    _stallTimer?.cancel();
+    _stallTimer = Timer(stallHintAfter, () {
+      if (mounted && _busy) setState(() => _stalled = true);
     });
     try {
       var path = _files[key];
@@ -145,17 +154,21 @@ class _ReverbPreviewState extends State<ReverbPreview> {
         if (at.inMilliseconds / 1000 > end) at = Duration.zero;
       }
       await _ensurePlayer().open(Media(path, start: at));
+      _stallTimer?.cancel();
       if (!mounted) return;
       setState(() {
         _loaded = key;
         _busy = false;
+        _stalled = false;
       });
     } on CancelledException {
       // A newer request took over.
     } catch (e) {
+      _stallTimer?.cancel();
       if (mounted) {
         setState(() {
           _busy = false;
+          _stalled = false;
           _error = e.toString();
         });
       }
@@ -179,6 +192,7 @@ class _ReverbPreviewState extends State<ReverbPreview> {
                   : const Icon(Icons.headphones),
               label: Text(_busy ? 'Making a preview…' : 'Hear a 20-second preview'),
             ),
+            if (_stalled) const StallHint(),
             if (_error != null) _errorText(t),
           ],
         ),

@@ -137,6 +137,13 @@ Future<Directory> desktopExportDir() async {
   return dir;
 }
 
+/// What deleting a project takes with it. On a computer exports go to the
+/// Downloads folder; on a phone they live inside the project until saved.
+String deleteWarning(String title, {required bool exportsInProject}) => exportsInProject
+    ? '"$title" will be removed, along with its downloaded files and any exports inside the app. '
+        'Copies you saved or shared elsewhere are kept.'
+    : '"$title" and its downloaded files will be removed. Files you exported are kept.';
+
 bool get isDesktop => Platform.isMacOS || Platform.isWindows || Platform.isLinux;
 
 /// Strips characters that are not allowed in file names.

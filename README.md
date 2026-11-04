@@ -14,7 +14,7 @@ Download from the [latest release](../../releases/latest):
 | Mac | `QuranClipper-macos.zip` | Unzip and drag **Quran Clipper** into Applications. The first time, right-click it and choose **Open**, then **Open** again. If macOS says it is damaged, run `xattr -cr "/Applications/Quran Clipper.app"` in Terminal once. |
 | Windows | `QuranClipper-windows.zip` | Unzip anywhere and run `QuranClipper.exe`. If SmartScreen appears, choose **More info**, then **Run anyway**. |
 
-The app isn't signed by Apple or Microsoft, so these first-run warnings are expected.
+The app isn't signed by Apple or Microsoft, so these first-run warnings are expected. On a Mac, the first export after installing a new version may also ask to use your Downloads folder: choose **Allow**.
 
 ## Using it
 
@@ -31,7 +31,7 @@ The app isn't signed by Apple or Microsoft, so these first-run warnings are expe
    - **Video:** none, a still image or title card, or the original footage.
    - **Make these my defaults** saves your choices.
 
-Projects save automatically. On a computer, exports go to `Downloads/Quran Clipper`. On Android, use **Save** or **Share** after exporting.
+Projects save automatically. On a computer, exports go to `Downloads/Quran Clipper`. On Android, use **Save** or **Share** after exporting: exports stay inside the app until you do, and deleting the project deletes them too.
 
 ## Masjid reverb
 

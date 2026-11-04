@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -6,10 +7,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:quran_clipper/core/models.dart';
+import 'package:quran_clipper/platform/ffmpeg_runner.dart';
 import 'package:quran_clipper/services/storage.dart';
 import 'package:quran_clipper/ui/choose_screen.dart';
 import 'package:quran_clipper/ui/export_screen.dart';
 import 'package:quran_clipper/ui/mark_screen.dart';
+import 'package:quran_clipper/ui/stall_hint.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakePaths extends Fake with MockPlatformInterfaceMixin implements PathProviderPlatform {
@@ -21,6 +24,23 @@ class _FakePaths extends Fake with MockPlatformInterfaceMixin implements PathPro
   Future<String?> getTemporaryPath() async => path;
   @override
   Future<String?> getApplicationSupportPath() async => path;
+  @override
+  Future<String?> getDownloadsPath() async => path;
+}
+
+/// An ffmpeg that sits there until told otherwise.
+class _HeldRunner extends FfmpegRunner {
+  final finish = Completer<void>();
+  void Function(double seconds)? progress;
+
+  @override
+  Future<void> run(List<String> args, {void Function(double seconds)? onProgress, CancelHandle? cancel}) {
+    progress = onProgress;
+    return finish.future;
+  }
+
+  @override
+  Future<MediaInfo> probe(String path) async => const MediaInfo(duration: 1, hasAudio: true, hasVideo: false);
 }
 
 Project sample({double duration = 600, List<Segment>? segments, bool reverbOnly = false}) => Project(
@@ -54,6 +74,15 @@ void main() {
     addTearDown(t.view.reset);
     await t.pumpWidget(MaterialApp(home: screen));
     await t.pump();
+  }
+
+  /// Lets the export's file work finish, without moving the test's clock.
+  Future<void> reachFfmpeg(WidgetTester t, _HeldRunner held) async {
+    for (var i = 0; i < 100 && held.progress == null; i++) {
+      await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await t.pump();
+    }
+    expect(held.progress, isNotNull);
   }
 
   group('project', () {
@@ -144,6 +173,68 @@ void main() {
       expect(find.byType(ChooseScreen), findsOneWidget);
       expect(p.reverbOnly, isFalse);
       expect(find.textContaining("couldn't be read"), findsOneWidget);
+    });
+  });
+
+  group('delete warning', () {
+    test('on a phone it says exports inside the app go too', () {
+      final w = deleteWarning('Surah', exportsInProject: true);
+      expect(w, contains('any exports inside the app'));
+      expect(w, contains('saved or shared elsewhere are kept'));
+      expect(w, isNot(contains('Files you exported are kept')));
+    });
+
+    test('on a computer exports are safe', () {
+      expect(deleteWarning('Surah', exportsInProject: false), contains('Files you exported are kept'));
+    });
+  });
+
+  group('waiting to start', () {
+    test('only macOS talks about a permission request', () {
+      expect(stallHintText(macOS: true), contains('choose Allow'));
+      expect(stallHintText(macOS: false), isNot(contains('Allow')));
+    });
+
+    testWidgets('explains after a while at 0%, and goes once it gets moving', (t) async {
+      final held = _HeldRunner();
+      final before = FfmpegRunner.instance;
+      FfmpegRunner.instance = held;
+      addTearDown(() => FfmpegRunner.instance = before);
+
+      await show(t, ExportScreen(project: sample(segments: [Segment(id: 'a', start: 1, end: 2)])));
+      await t.tap(find.text('Export MP3'));
+      await reachFfmpeg(t, held);
+      expect(find.byType(StallHint), findsNothing);
+
+      await t.pump(stallHintAfter + const Duration(seconds: 1));
+      expect(find.byType(StallHint), findsOneWidget);
+      expect(find.text('Cancel'), findsOneWidget);
+
+      held.progress!(0.5);
+      await t.pump();
+      expect(find.byType(StallHint), findsNothing);
+
+      held.finish.completeError(CancelledException());
+      await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await t.pump(const Duration(seconds: 1));
+    });
+
+    testWidgets('stays quiet when an export gets going straight away', (t) async {
+      final held = _HeldRunner();
+      final before = FfmpegRunner.instance;
+      FfmpegRunner.instance = held;
+      addTearDown(() => FfmpegRunner.instance = before);
+
+      await show(t, ExportScreen(project: sample(segments: [Segment(id: 'a', start: 1, end: 2)])));
+      await t.tap(find.text('Export MP3'));
+      await reachFfmpeg(t, held);
+      held.progress!(0.5);
+      await t.pump(stallHintAfter + const Duration(seconds: 1));
+      expect(find.byType(StallHint), findsNothing);
+
+      held.finish.completeError(CancelledException());
+      await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await t.pump(const Duration(seconds: 1));
     });
   });
 

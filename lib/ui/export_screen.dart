@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -15,6 +16,7 @@ import '../services/exporter.dart';
 import '../services/storage.dart';
 import 'mark_screen.dart';
 import 'reverb_preview.dart';
+import 'stall_hint.dart';
 import 'upload_sheet.dart';
 
 class ExportScreen extends StatefulWidget {
@@ -36,6 +38,8 @@ class _ExportScreenState extends State<ExportScreen> {
   final _scroll = ScrollController();
   ExportResult? _result;
   String? _error;
+  Timer? _stallTimer;
+  bool _stalled = false;
 
   bool get _canUseFootage => project.videoPath != null || project.sourceUrl != null;
 
@@ -53,6 +57,7 @@ class _ExportScreenState extends State<ExportScreen> {
   @override
   void dispose() {
     _cancel?.cancel();
+    _stallTimer?.cancel();
     _scroll.dispose();
     super.dispose();
   }
@@ -66,6 +71,11 @@ class _ExportScreenState extends State<ExportScreen> {
       _error = null;
       _result = null;
       _progress = 0;
+      _stalled = false;
+    });
+    _stallTimer?.cancel();
+    _stallTimer = Timer(stallHintAfter, () {
+      if (mounted && _running && _progress == 0) setState(() => _stalled = true);
     });
     // The progress card sits at the top, so bring it into view.
     _scroll.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
@@ -75,7 +85,12 @@ class _ExportScreenState extends State<ExportScreen> {
         () => Exporter(
           cancel: cancel,
           onStatus: (v) => mounted ? setState(() => _status = v) : null,
-          onProgress: (v) => mounted ? setState(() => _progress = v) : null,
+          onProgress: (v) => mounted
+              ? setState(() {
+                  _progress = v;
+                  if (v > 0) _stalled = false;
+                })
+              : null,
         ).run(project, settings),
       );
       if (!mounted) return;
@@ -86,7 +101,13 @@ class _ExportScreenState extends State<ExportScreen> {
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
-      if (mounted) setState(() => _running = false);
+      _stallTimer?.cancel();
+      if (mounted) {
+        setState(() {
+          _running = false;
+          _stalled = false;
+        });
+      }
     }
   }
 
@@ -442,6 +463,7 @@ class _ExportScreenState extends State<ExportScreen> {
               ),
               const SizedBox(height: 10),
               LinearProgressIndicator(value: _progress, minHeight: 6, borderRadius: BorderRadius.circular(3)),
+              if (_stalled) const StallHint(),
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(onPressed: () => _cancel?.cancel(), child: const Text('Cancel')),

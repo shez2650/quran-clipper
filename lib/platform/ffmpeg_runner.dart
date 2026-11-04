@@ -45,6 +45,9 @@ class CancelHandle {
   }
 }
 
+/// How long a cancelled ffmpeg job gets to stop before it's given up on.
+const cancelGiveUpAfter = Duration(seconds: 3);
+
 abstract class FfmpegRunner {
   /// Swapped for [ProcessFfmpegRunner] in tests.
   static FfmpegRunner instance = KitFfmpegRunner();
@@ -75,6 +78,13 @@ class KitFfmpegRunner extends FfmpegRunner {
     final session = await FFmpegKit.executeWithArgumentsAsync(
       args,
       (session) async {
+        if (done.isCompleted) {
+          // It was given up on, and has only now stopped. Don't leave its output.
+          try {
+            await File(args.last).delete();
+          } catch (_) {}
+          return;
+        }
         final code = await session.getReturnCode();
         if (ReturnCode.isSuccess(code)) {
           done.complete();
@@ -89,7 +99,14 @@ class KitFfmpegRunner extends FfmpegRunner {
       onProgress == null ? null : (stats) => onProgress(stats.getTime() / 1000.0),
     );
     if (cancel != null) {
-      cancel._onCancel = () => FFmpegKit.cancel(session.getSessionId());
+      cancel._onCancel = () {
+        FFmpegKit.cancel(session.getSessionId());
+        // FFmpeg can't stop while the system is holding up a file it's opening,
+        // for instance behind a macOS privacy prompt. Don't make the user wait.
+        Timer(cancelGiveUpAfter, () {
+          if (!done.isCompleted) done.completeError(CancelledException());
+        });
+      };
     }
     return done.future;
   }
