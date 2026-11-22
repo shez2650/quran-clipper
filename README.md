@@ -19,6 +19,7 @@ The app isn't signed by Apple or Microsoft, so these first-run warnings are expe
 ## Using it
 
 1. **Start a project.** Paste a YouTube link, or open a video or audio file (voice recordings work too). On Android you can also **Share → Quran Clipper** from the YouTube app or a file manager. Then choose **Mark and clip**, or [**Just add reverb**](#just-add-reverb) to skip the next two steps.
+   - **YouTube links don't download at the moment (November 2026).** YouTube now sends apps like this only the first few seconds of a video unless they pass its anti-bot checks, so the app stops straight away and says so. Save the video another way, then open the file or share it to Quran Clipper. On a computer, links still work if [yt-dlp](https://github.com/yt-dlp/yt-dlp) is installed, because the app uses it when YouTube refuses.
 2. **Mark the recitations.** Play until a recitation begins, press **Mark start**, then press **Mark end** when it stops. Repeat for each recitation.
    - Drag a part's edges on the waveform, nudge them with **− / +** (hold for 1 second steps), or tap a time to type it.
    - Reorder parts by dragging the handle. Rename them from the ⋮ menu.
