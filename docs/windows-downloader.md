@@ -37,9 +37,9 @@ recipients can obtain the corresponding upstream source and build instructions.
 Maintain redistribution obligations for all bundled dependencies when updating;
 do not remove their notices.
 
-Deno is MIT licensed with bundled third-party components. The packaging script
-captures the pinned executable's full `deno --license` output in
-`tools/licenses/deno-LICENSE.txt`.
+Deno is MIT licensed. Its pinned upstream license is included in
+`tools/licenses/deno-LICENSE.md`; its source and dependency declarations are
+available at the pinned source link above.
 
 ## Updating
 

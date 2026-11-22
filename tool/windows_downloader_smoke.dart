@@ -24,7 +24,7 @@ Future<void> main(List<String> args) async {
   if (args.contains('--live')) {
     final dir = await Directory.systemTemp.createTemp('Quran Clipper live smoke ');
     try {
-      const id = 'BaW_jenozKc'; // yt-dlp's public test video.
+      final id = Platform.environment['LIVE_YOUTUBE_ID'] ?? 'dzLTlrwvuKs'; // Existing repository live-test video.
       report['title'] = (await dl.metadata(id))['title'];
       final audio = await dl.download(id, dir, video: false);
       final video = await dl.download(id, dir, video: true, maxHeight: 360);

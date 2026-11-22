@@ -75,7 +75,7 @@ void main() {
     expect(project.duration, 120);
     expect(project.videoPath, isNull);
     expect(project.sourceUrl, 'https://www.youtube.com/watch?v=BaW_jenozKc');
-    await ProjectStore.instance.load();
+    await t.runAsync(ProjectStore.instance.load);
     final reopened = ProjectStore.instance.projects.single;
     expect(reopened.audioPath, project.audioPath);
     expect(reopened.sourceUrl, project.sourceUrl);
@@ -97,6 +97,6 @@ void main() {
     }
     expect(find.text('Private video'), findsOneWidget);
     expect(ProjectStore.instance.projects, isEmpty);
-    expect(await ProjectStore.instance.root.list().toList(), isEmpty);
+    expect(await t.runAsync(() => ProjectStore.instance.root.list().toList()), isEmpty);
   });
 }

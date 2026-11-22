@@ -6,6 +6,7 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../platform/ffmpeg_runner.dart' show CancelHandle, CancelledException;
 import 'stream_fetch.dart';
 import 'yt_dlp.dart';
+export 'yt_dlp.dart' show DownloadException;
 
 class VideoMeta {
   const VideoMeta({required this.id, required this.title, required this.author, this.duration});
@@ -28,13 +29,6 @@ const refusedMessage = "YouTube is refusing to let this app download videos at t
 /// Said when YouTube won't play this video at all.
 const unplayableMessage = "This video can't be downloaded. It may be private, age-restricted, "
     'members-only or not available in your country.';
-
-class DownloadException implements Exception {
-  DownloadException(this.message);
-  final String message;
-  @override
-  String toString() => message;
-}
 
 /// Downloads YouTube audio/video with youtube_explode (pure Dart, all
 /// platforms). Windows uses bundled yt-dlp first; other desktops fall back to it.

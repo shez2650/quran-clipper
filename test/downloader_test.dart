@@ -99,6 +99,7 @@ void main() {
     expect(await File(audio).readAsString(), 'media');
     expect(p.extension(video), '.mp4');
     expect(progress, containsAllInOrder([0.5, 1.0]));
+    expect(calls.last, contains('--progress'));
     expect(calls.last[calls.last.indexOf('-f') + 1], contains('height<=720'));
     for (final args in calls) {
       expect(args.last, 'https://www.youtube.com/watch?v=BaW_jenozKc');
@@ -106,6 +107,36 @@ void main() {
       expect(args, contains('--ignore-config'));
     }
     expect(await dir.list().where((e) => e is Directory).toList(), isEmpty);
+  });
+
+  test('metadata uses native title and duration on Windows', () async {
+    final native = YtDlp('fake', start: (_, args) async {
+      expect(args, contains('--dump-single-json'));
+      return FakeProcess('{"title":"Recitation","uploader":"Reader","duration":12.5}');
+    });
+    final meta = await YouTubeDownloader(windows: true, ytDlp: native).fetchMeta('BaW_jenozKc');
+    expect(meta.title, 'Recitation');
+    expect(meta.author, 'Reader');
+    expect(meta.duration, const Duration(milliseconds: 12500));
+  });
+
+  test('success without media and paths outside the work folder are rejected', () async {
+    final saved = File(p.join(dir.path, 'saved.m4a'));
+    await saved.writeAsString('saved');
+    final dl = YtDlp('fake', start: (_, _) async => FakeProcess('${saved.path}\n'));
+    await expectLater(dl.download('BaW_jenozKc', dir, video: false),
+        throwsA(isA<DownloadException>()));
+    expect(await saved.readAsString(), 'saved');
+    expect((await dir.list().toList()).length, 1);
+  });
+
+  test('process startup failure is clear and cleans temporary work', () async {
+    final dl = YtDlp('missing.exe', start: (exe, args) async {
+      throw ProcessException(exe, args, 'Not found');
+    });
+    await expectLater(dl.download('BaW_jenozKc', dir, video: false),
+        throwsA(isA<DownloadException>().having((e) => e.message, 'message', contains('Extract'))));
+    expect(await dir.list().toList(), isEmpty);
   });
 
   test('failure cleans only temporary downloads and preserves saved audio', () async {

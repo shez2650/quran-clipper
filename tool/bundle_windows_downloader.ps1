@@ -22,9 +22,7 @@ $licenses = Join-Path $tools 'licenses'
 New-Item -ItemType Directory -Force $licenses | Out-Null
 Invoke-WebRequest "https://raw.githubusercontent.com/yt-dlp/yt-dlp/$ytVersion/LICENSE" -OutFile (Join-Path $licenses 'yt-dlp-LICENSE')
 Invoke-WebRequest "https://raw.githubusercontent.com/yt-dlp/yt-dlp/$ytVersion/THIRD_PARTY_LICENSES.txt" -OutFile (Join-Path $licenses 'yt-dlp-THIRD_PARTY_LICENSES.txt')
-# Includes Deno's MIT license and bundled dependency notices.
-& (Join-Path $tools 'deno.exe') --license | Set-Content -Encoding utf8 (Join-Path $licenses 'deno-LICENSE.txt')
-if ($LASTEXITCODE -ne 0) { throw 'Deno license extraction failed' }
+Invoke-WebRequest "https://raw.githubusercontent.com/denoland/deno/v$denoVersion/LICENSE.md" -OutFile (Join-Path $licenses 'deno-LICENSE.md')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../docs/windows-downloader.md') -Destination (Join-Path $tools 'README.md')
 if ((& (Join-Path $tools 'yt-dlp.exe') --ignore-config --version) -ne $ytVersion) { throw 'Wrong yt-dlp version' }
 if ($LASTEXITCODE -ne 0) { throw 'yt-dlp did not start' }

@@ -30,11 +30,15 @@ Future<String?> findYtDlp({String? executable, bool? windows,
   return null;
 }
 
-class YtDlpException implements Exception {
-  YtDlpException(this.message);
+class DownloadException implements Exception {
+  DownloadException(this.message);
   final String message;
   @override
   String toString() => message;
+}
+
+class YtDlpException extends DownloadException {
+  YtDlpException(super.message);
 }
 
 typedef StartDownloader = Future<Process> Function(String executable, List<String> arguments);
@@ -81,7 +85,7 @@ class YtDlp {
       final base = video ? 'video' : 'audio';
       String? downloaded;
       await _run([
-        ..._common, '--newline', '--no-simulate',
+        ..._common, '--newline', '--progress', '--no-simulate',
         '-f', video
             ? 'bv[height<=$maxHeight][ext=mp4][vcodec^=avc1]/bv[height<=$maxHeight][ext=mp4]/bv[height<=$maxHeight]'
             : 'ba[ext=m4a]/ba',
