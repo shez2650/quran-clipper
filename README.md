@@ -12,14 +12,15 @@ Download from the [latest release](../../releases/latest):
 |---|---|---|
 | Android | `QuranClipper-android.apk` | Open the file. If asked, allow your browser or Files app to "install unknown apps". |
 | Mac | `QuranClipper-macos.zip` | Unzip and drag **Quran Clipper** into Applications. The first time, right-click it and choose **Open**, then **Open** again. If macOS says it is damaged, run `xattr -cr "/Applications/Quran Clipper.app"` in Terminal once. |
-| Windows | `QuranClipper-windows.zip` | Unzip anywhere and run `QuranClipper.exe`. If SmartScreen appears, choose **More info**, then **Run anyway**. |
+| Windows | `QuranClipper-windows.zip` | Extract the whole ZIP and run `QuranClipper.exe`. Keep its `tools` folder and DLLs beside it. Windows 10+ (x64); yt-dlp and its JavaScript runtime are included. If SmartScreen appears, choose **More info**, then **Run anyway**. |
 
 The app isn't signed by Apple or Microsoft, so these first-run warnings are expected. On a Mac, the first export after installing a new version may also ask to use your Downloads folder: choose **Allow**.
 
 ## Using it
 
 1. **Start a project.** Paste a YouTube link, or open a video or audio file (voice recordings work too). On Android you can also **Share → Quran Clipper** from the YouTube app or a file manager. Then choose **Mark and clip**, or [**Just add reverb**](#just-add-reverb) to skip the next two steps.
-   - **YouTube links don't download at the moment (November 2026).** YouTube now sends apps like this only the first few seconds of a video unless they pass its anti-bot checks, so the app stops straight away and says so. Save the video another way, then open the file or share it to Quran Clipper. On a computer, links still work if [yt-dlp](https://github.com/yt-dlp/yt-dlp) is installed, because the app uses it when YouTube refuses.
+   - **On Windows:** copy the video URL from your browser, click **Paste a YouTube link**, check the prefilled URL and click **Import**. No separate yt-dlp installation, PATH setup or browser extension is needed. **Also download the video** enables footage while marking; otherwise you can fetch it later by choosing **Original footage** on export.
+   - YouTube can refuse private, unavailable, restricted or bot-blocked videos. The app shows the reason; try later or open a local file. Android uses the Dart downloader, which YouTube may block; macOS can fall back to a separately installed [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 2. **Mark the recitations.** Play until a recitation begins, press **Mark start**, then press **Mark end** when it stops. Repeat for each recitation.
    - Drag a part's edges on the waveform, nudge them with **− / +** (hold for 1 second steps), or tap a time to type it.
    - Reorder parts by dragging the handle. Rename them from the ⋮ menu.
@@ -93,6 +94,8 @@ Keep a backup of the key. Without it, future APKs can't install over an existing
 |---|---|
 | Cutting, joining, encoding | `ffmpeg_kit_flutter_new` (FFmpeg 8, same build on all platforms). One `-filter_complex` graph per export, built in [lib/core/render.dart](lib/core/render.dart) |
 | Playback | `media_kit` (mpv) |
-| YouTube download | `youtube_explode_dart`, falling back to `yt-dlp` on a computer if it's installed |
+| YouTube download | Bundled yt-dlp + Deno on Windows; `youtube_explode_dart` on Android/macOS with a system yt-dlp fallback on desktop |
 | Google sign-in | Loopback OAuth (`googleapis_auth`), the same flow on every device |
 | Upload | YouTube Data API v3 (`googleapis`), resumable upload |
+
+Windows downloader versions, source, licenses, update steps and clean-runner verification are documented in [Windows downloader packaging](docs/windows-downloader.md). Browser URL drag-and-drop is not supported; use the clipboard-prefilled link form.

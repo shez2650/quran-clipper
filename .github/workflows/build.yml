@@ -7,7 +7,7 @@ name: Build
 # because macOS minutes are expensive on private repos.
 on:
   push:
-    branches: [main]
+    branches: [main, 'codex/windows-youtube-bundle']
     tags: ['v*']
   workflow_dispatch:
 
@@ -33,6 +33,7 @@ jobs:
       - run: flutter test
 
   android:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs: test
     permissions:
       contents: write
@@ -116,7 +117,7 @@ jobs:
     needs: test
     permissions:
       contents: write
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/codex/windows-youtube-bundle'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -127,6 +128,9 @@ jobs:
       # Runs the export code through the FFmpeg bundled with the app.
       - run: flutter test integration_test -d windows
       - run: flutter build windows --release --build-number ${{ github.run_number }}
+      - name: Bundle pinned YouTube dependencies
+        shell: pwsh
+        run: ./tool/bundle_windows_downloader.ps1 -Destination build/windows/x64/runner/Release
       - name: Zip app
         shell: pwsh
         run: |
@@ -134,6 +138,38 @@ jobs:
           New-Item -ItemType Directory -Force -Path "dist/Quran Clipper" | Out-Null
           Copy-Item -Recurse "$out/*" "dist/Quran Clipper/"
           Compress-Archive -Path "dist/Quran Clipper" -DestinationPath QuranClipper-windows.zip
+      - name: Verify extracted ZIP without system downloader
+        shell: pwsh
+        run: |
+          dart compile exe tool/windows_downloader_smoke.dart -o windows_downloader_smoke.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Smoke harness compilation failed' }
+          Expand-Archive QuranClipper-windows.zip -DestinationPath package-check
+          $app = (Resolve-Path 'package-check/Quran Clipper').Path
+          Copy-Item windows_downloader_smoke.exe $app
+          $oldPath = $env:PATH
+          $oldLocal = $env:LOCALAPPDATA
+          try {
+            $env:PATH = "$env:SystemRoot/System32"
+            $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'empty-local-appdata'
+            Push-Location $env:RUNNER_TEMP
+            try {
+              & (Join-Path $app 'windows_downloader_smoke.exe') --live
+              if ($LASTEXITCODE -ne 0) { throw 'Packaged downloader smoke failed' }
+              Copy-Item windows-downloader-smoke.json $env:GITHUB_WORKSPACE
+              $process = Start-Process (Join-Path $app 'QuranClipper.exe') -PassThru -WindowStyle Hidden
+              Start-Sleep -Seconds 5
+              if ($process.HasExited) { throw "Packaged app exited early: $($process.ExitCode)" }
+              Stop-Process -Id $process.Id
+            } finally { Pop-Location }
+          } finally {
+            $env:PATH = $oldPath
+            $env:LOCALAPPDATA = $oldLocal
+          }
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-downloader-verification
+          path: windows-downloader-smoke.json
       - uses: actions/upload-artifact@v7
         with:
           name: windows

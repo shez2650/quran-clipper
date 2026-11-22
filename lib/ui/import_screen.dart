@@ -20,12 +20,13 @@ const _mediaExtensions = [
 /// Creates a project from a YouTube link or a local file, then asks what to
 /// do with it.
 class ImportScreen extends StatefulWidget {
-  const ImportScreen({super.key, this.link, this.editLink = false, this.filePath, this.pickFile = false});
+  const ImportScreen({super.key, this.link, this.editLink = false, this.filePath, this.pickFile = false, this.downloader});
 
   final String? link;
   final bool editLink;
   final String? filePath;
   final bool pickFile;
+  final YouTubeDownloader? downloader;
 
   @override
   State<ImportScreen> createState() => _ImportScreenState();
@@ -191,9 +192,10 @@ class _ImportScreenState extends State<ImportScreen> {
   }
 
   Future<void> _downloadLink(String id, CancelHandle cancel) async {
-    final dl = YouTubeDownloader();
+    final dl = widget.downloader ?? YouTubeDownloader();
     _set(status: 'Looking up video…', clearProgress: true);
-    final meta = await dl.fetchMeta(id);
+    final meta = await dl.fetchMeta(id, cancel: cancel);
+    if (cancel.cancelled) throw CancelledException();
     final projectId = newId();
     _workDir = await ProjectStore.instance.createDir(projectId);
 
@@ -209,6 +211,8 @@ class _ImportScreenState extends State<ImportScreen> {
 
     _set(status: 'Reading audio…', clearProgress: true);
     final info = await FfmpegRunner.instance.probe(audio);
+    if (cancel.cancelled || !mounted) throw CancelledException();
+    if (!info.hasAudio) throw DownloadException('The downloaded file has no playable audio.');
     await _done(Project(
       id: projectId,
       title: meta.title,
@@ -264,6 +268,8 @@ class _ImportScreenState extends State<ImportScreen> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const Text('Copy a YouTube video URL from your browser, then paste it here. No browser extension is needed.'),
+          const SizedBox(height: 16),
           TextField(
             controller: _link,
             autofocus: _link.text.isEmpty,
@@ -277,7 +283,7 @@ class _ImportScreenState extends State<ImportScreen> {
                 icon: const Icon(Icons.content_paste),
                 onPressed: () async {
                   final d = await Clipboard.getData(Clipboard.kTextPlain);
-                  if (d?.text != null) _link.text = d!.text!.trim();
+                  if (mounted && d?.text != null) _link.text = d!.text!.trim();
                 },
               ),
             ),

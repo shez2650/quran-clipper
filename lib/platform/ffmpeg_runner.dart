@@ -7,6 +7,9 @@ import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit_config.dart';
 import 'package:ffmpeg_kit_flutter_new/ffprobe_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 
+import '../core/cancellation.dart';
+export '../core/cancellation.dart';
+
 class MediaInfo {
   const MediaInfo({required this.duration, required this.hasAudio, required this.hasVideo});
   final double duration;
@@ -27,22 +30,6 @@ class FfmpegException implements Exception {
 
   @override
   String toString() => '$message\n$tail';
-}
-
-class CancelledException implements Exception {
-  @override
-  String toString() => 'Cancelled';
-}
-
-/// Lets a caller stop a running ffmpeg job.
-class CancelHandle {
-  bool cancelled = false;
-  FutureOr<void> Function()? _onCancel;
-
-  Future<void> cancel() async {
-    cancelled = true;
-    await _onCancel?.call();
-  }
 }
 
 /// How long a cancelled ffmpeg job gets to stop before it's given up on.
@@ -99,7 +86,7 @@ class KitFfmpegRunner extends FfmpegRunner {
       onProgress == null ? null : (stats) => onProgress(stats.getTime() / 1000.0),
     );
     if (cancel != null) {
-      cancel._onCancel = () {
+      cancel.onCancel = () {
         FFmpegKit.cancel(session.getSessionId());
         // FFmpeg can't stop while the system is holding up a file it's opening,
         // for instance behind a macOS privacy prompt. Don't make the user wait.
@@ -143,7 +130,7 @@ class ProcessFfmpegRunner extends FfmpegRunner {
   @override
   Future<void> run(List<String> args, {void Function(double seconds)? onProgress, CancelHandle? cancel}) async {
     final p = await Process.start(ffmpeg, ['-progress', 'pipe:1', '-nostats', ...args]);
-    if (cancel != null) cancel._onCancel = () => p.kill();
+    if (cancel != null) cancel.onCancel = () => p.kill();
     final err = StringBuffer();
     p.stderr.transform(utf8.decoder).listen(err.write);
     p.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
