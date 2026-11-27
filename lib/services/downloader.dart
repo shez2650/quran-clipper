@@ -126,8 +126,10 @@ class YouTubeDownloader {
   /// Saves the best audio-only stream into [dir] and returns the path.
   Future<String> downloadAudio(String id, Directory dir,
       {void Function(double fraction)? onProgress, CancelHandle? cancel}) async {
-    if (windows) return (await _windowsDownloader()).download(id, dir,
-        video: false, onProgress: onProgress, cancel: cancel);
+    if (windows) {
+      return (await _windowsDownloader()).download(id, dir,
+          video: false, onProgress: onProgress, cancel: cancel);
+    }
     try {
       return await _explode(id, dir, video: false, onProgress: onProgress, cancel: cancel);
     } on CancelledException {
@@ -142,8 +144,10 @@ class YouTubeDownloader {
   /// Saves a video-only stream (no sound) up to [maxHeight] into [dir].
   Future<String> downloadVideo(String id, Directory dir,
       {int maxHeight = 1080, void Function(double fraction)? onProgress, CancelHandle? cancel}) async {
-    if (windows) return (await _windowsDownloader()).download(id, dir,
-        video: true, maxHeight: maxHeight, onProgress: onProgress, cancel: cancel);
+    if (windows) {
+      return (await _windowsDownloader()).download(id, dir,
+          video: true, maxHeight: maxHeight, onProgress: onProgress, cancel: cancel);
+    }
     try {
       return await _explode(id, dir, video: true, maxHeight: maxHeight, onProgress: onProgress, cancel: cancel);
     } on CancelledException {

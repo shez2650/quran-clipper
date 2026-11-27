@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import '../lib/services/yt_dlp.dart';
+import 'package:quran_clipper/services/yt_dlp.dart';
 
 Future<void> main(List<String> args) async {
   final exe = await findYtDlp();
