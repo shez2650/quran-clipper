@@ -1,6 +1,6 @@
 name: Build
 
-# Every push: tests + Android build.
+# main: tests + Android. windows-v* tags: tests + Windows-only release.
 # Tags like v1.2.0 (or a manual run): also macOS and Windows. On a tag each
 # platform attaches its own build to the GitHub Release as soon as it's done,
 # so one slow or stuck platform doesn't hold up the others. Desktop builds are skipped on plain pushes
@@ -8,7 +8,7 @@ name: Build
 on:
   push:
     branches: [main, 'codex/windows-youtube-bundle']
-    tags: ['v*']
+    tags: ['v*', 'windows-v*']
   workflow_dispatch:
 
 concurrency:
@@ -117,7 +117,7 @@ jobs:
     needs: test
     permissions:
       contents: write
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/codex/windows-youtube-bundle'
+    if: startsWith(github.ref, 'refs/tags/windows-v') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/codex/windows-youtube-bundle'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -126,6 +126,7 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
       # Runs the export code through the FFmpeg bundled with the app.
+      - run: flutter test test/downloader_test.dart test/import_test.dart
       - run: flutter test integration_test -d windows
       - run: flutter build windows --release --build-number ${{ github.run_number }}
       - name: Bundle pinned YouTube dependencies
@@ -174,9 +175,17 @@ jobs:
         with:
           name: windows
           path: QuranClipper-windows.zip
+      - name: Require successful live download for Windows release
+        if: startsWith(github.ref, 'refs/tags/windows-v')
+        shell: pwsh
+        run: |
+          $report = Get-Content windows-downloader-smoke.json -Raw | ConvertFrom-Json
+          if ($report.liveDownload -ne 'passed') { throw 'Live YouTube verification failed; release will not be published.' }
       - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/windows-v')
         uses: softprops/action-gh-release@v3
         with:
+          name: Quran Clipper ${{ github.ref_name }}
+          body_path: docs/windows-release-notes.md
           files: QuranClipper-windows.zip
           overwrite_files: true

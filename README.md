@@ -99,3 +99,7 @@ Keep a backup of the key. Without it, future APKs can't install over an existing
 | Upload | YouTube Data API v3 (`googleapis`), resumable upload |
 
 Windows downloader versions, source, licenses, update steps and clean-runner verification are documented in [Windows downloader packaging](docs/windows-downloader.md). Browser URL drag-and-drop is not supported; use the clipboard-prefilled link form.
+
+### Windows-only releases
+
+Windows feature releases use tags such as `windows-v1.3.0`. These run tests and build only the Windows app; no macOS or Android release is produced. The Windows ZIP bundles yt-dlp and Deno so YouTube links work without separate installation. Publication requires the extracted-package checks and live audio/video download check to pass.
